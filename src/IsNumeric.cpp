@@ -77,7 +77,7 @@ public:
     }
 };
 
-int main()
+int main_IsNumeric()
 {
     Solution sln;
     cout << sln.isNumber(NULL) << endl;

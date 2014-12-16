@@ -1,8 +1,8 @@
-project(RevserseWords)
+project(leetcode)
 
 cmake_minimum_required( VERSION 2.6 )
 
-set(PROJNAME RevserseWords)
+set(PROJNAME leetcode)
 
 # check 64 bit
 if( CMAKE_SIZEOF_VOID_P EQUAL 8 )
@@ -48,7 +48,7 @@ set(Boost_USE_STATIC_LIBS OFF)
 set(Boost_USE_MULTITHREADED ON)  
 set(Boost_USE_STATIC_RUNTIME OFF) 
 
-add_definitions( -DBOOST_ALL_DYN_LINK )
+add_definitions( -DBOOST_ALL_DYN_LINK -std=c++0x)
 
 LINK_DIRECTORIES(${LIBPATHS})
 
