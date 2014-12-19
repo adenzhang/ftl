@@ -160,7 +160,7 @@ public:
 
             }
 
-int main() {
+int main_candy() {
     Solution sln;
     vector<int> candies;
     int n;
