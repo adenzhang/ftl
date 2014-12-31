@@ -169,7 +169,16 @@ public:
                 }while(true);
             }
         }
+        struct Smaller{
+            int x;
+            Smaller(int a):x(a){}
+            bool operator()(StringVectorPtr& v) {
+                return v->size() < x;
+            }
+        };
+
         StringVectorVector vv;
+//        std::copy_if(result.begin(), result.end(), std::back_inserter(vv), Smaller(shortest));
         for(StringVectorQ::iterator it=result.begin(); it!=result.end(); ++it) {
             if( (**it).size() <= shortest )
                 vv.push_back(std::move(**it));

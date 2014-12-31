@@ -86,9 +86,11 @@ static void test()
 //    cout << sln.fractionToDecimal(-2147483648, -1) << endl;
 //    cout << sln.fractionToDecimal(-2147483648, 1) << endl;
 //    cout << sln.fractionToDecimal(-1, -2147483648) << endl;
+    int a[] = {1,2,3};
+    next_permutation(a, a+3);
 }
 
-int main(int, const char **) {
+int main_FactionToDecimal(int, const char **) {
     test();
     return 0;
 }
