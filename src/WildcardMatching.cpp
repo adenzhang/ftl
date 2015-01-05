@@ -72,7 +72,7 @@ static void test() {
         ) );
 }
 
-int main() {
+int main_WildcardMatching() {
     test();
     cout<< "The end." << endl;
     return 0;
