@@ -281,7 +281,7 @@ static void test() {
 
 }
 
-int main(int, const char **) {
+int main_WordBreakII(int, const char **) {
     test();
     return 0;
 }
