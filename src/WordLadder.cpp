@@ -214,3 +214,4 @@ int main_worldladder(int, const char **) {
     test();
     return 0;
 }
+

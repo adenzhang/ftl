@@ -71,7 +71,7 @@ public:
 static void test() {
 }
 
-int main(int, const char **) {
+int longest_palindrome_main(int, const char **) {
     test();
     return 0;
 }
