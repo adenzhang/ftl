@@ -1,3 +1,5 @@
+/*
+
 #include <virtual_function.h>
 
 void test_virtual_function()
@@ -31,9 +33,10 @@ void test_virtual_function()
     pd3->printId();
 }
 
-int main(int argn, const char** argv)
+int main_testcpp(int argn, const char** argv)
 {
     std::cout << "Begin TestCpp!" << std::endl;
     test_virtual_function();
     return 0;
 }
+*/

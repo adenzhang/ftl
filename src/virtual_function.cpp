@@ -1,3 +1,4 @@
+/*
 #include <virtual_function.h>
 
 namespace vf {
@@ -6,3 +7,4 @@ namespace vf {
         f();
     }
 } // namespace vf
+*/

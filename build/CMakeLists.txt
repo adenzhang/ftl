@@ -1,5 +1,5 @@
 project(leetcode)
-
+# cmake -G "Eclipse CDT4 - Unix Makefiles" -D_ECLIPSE_VERSION=4.2 -DCMAKE_BUILD_TYPE=Debug ../build
 cmake_minimum_required( VERSION 2.6 )
 
 set(PROJNAME leetcode)
@@ -12,7 +12,7 @@ else()
 endif()
 
 if( NOT CMAKE_BUILD_TYPE )
-	set(CMAKE_BUILD_TYPE Release)
+	set(CMAKE_BUILD_TYPE Debug)
 endif()
 
 if (CMAKE_BUILD_TYPE STREQUAL Debug)
