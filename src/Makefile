@@ -1,7 +1,7 @@
 CXXFLAGS = -g -Wall -fmessage-length=0 -std=c++0x
 
 #OBJS = $(patsubst %.cpp, %.o, $(wildcard *.cpp))
-OBJS = SlidingWindowMaximum.o
+OBJS = BuildingOutline.o
 LIBS =
 INCLUDES = -I.
 

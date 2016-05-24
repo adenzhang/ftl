@@ -104,7 +104,7 @@ static void test() {
 	}
 }
 
-int main()
+int main_SlidingWindowMaximum()
 {
 	Solution sln;
 	test();
