@@ -27,10 +27,62 @@ Please merge the adjacent outlines if they have the same height and make sure di
 #include <vector>
 #include <map>
 #include <set>
+#include <list>
+#include <vector>
+#include <unordered_map>
 #include <utility>
 #include <algorithm>
+#include <iostream>
 
 using namespace std;
+
+namespace BuildingOutline {
+template<typename List>
+std::ostream& printList(std::ostream& os, List& v) {
+	os << "[";
+	for(typename List::iterator it2=v.begin(); it2!=v.end(); ++it2) {
+		if( it2 == v.begin() ) {
+			os << *it2;
+		}else{
+			os << "," << *it2;
+		}
+	}
+	os << "]";
+	return os;
+}
+template<typename Map>
+std::ostream& printMap(std::ostream& os, Map& v) {
+	os << "{";
+	for(typename Map::iterator it2=v.begin(); it2!=v.end(); ++it2) {
+		if( it2 == v.begin() ) {
+			os << it2->first <<":" << it2->second;
+		}else{
+			os << "," << it2->first <<":" << it2->second;
+		}
+	}
+	os << "}";
+	return os;
+}
+template<typename Key, typename Value>
+std::ostream& operator<<(std::ostream& os, std::map<Key,Value>& v) {
+	return printMap(os, v);
+}
+template<typename Key, typename Value>
+std::ostream& operator<<(std::ostream& os, std::unordered_map<Key, Value>& v) {
+	return printMap(os, v);
+}
+template<typename Elm>
+std::ostream& operator<<(std::ostream& os, std::vector<Elm>& v) {
+	return printList(os, v);
+}
+template<typename Elm>
+std::ostream& operator<<(std::ostream& os, std::list<Elm>& v) {
+	return printList(os, v);
+}
+template<typename Elm>
+std::ostream& operator<<(std::ostream& os, std::set<Elm>& v) {
+	return printList(os, v);
+}
 
 class Solution {
 public:
@@ -51,7 +103,7 @@ public:
         return a.x < b.x;
     }
     };
-    typedef set<SegPoint, PointLessByX> PointSetX;
+    typedef multiset<SegPoint, PointLessByX> PointSetX;
 
     void pushOutline(vector<vector<int> > &b, int start, int end, int height) {
         vector<int> p(3);
@@ -78,10 +130,10 @@ public:
         }
         // find outline from point set
         SegPoint startP;
-        for(PointSetX::iterator it=points.begin(), itUpp=points.begin(); it!=points.end(); it = itUpp) {
-            itUpp = points.upper_bound(*it);
+        for(PointSetX::iterator it=points.begin(), itUpp=points.begin(); it!=points.end();) {
             bool isEmpty = pending.empty();
-            for(PointSetX::iterator i=it; i!=itUpp; ++i) {
+            PointSetX::iterator i=it;
+            for(; i->x ==it->x && i!=points.end(); ++i) {
                 pending[i->y] += i->isStart? 1: (-1);
             }
             for(IntIntMap::iterator i=pending.begin(); i!=pending.end();) {
@@ -101,12 +153,31 @@ public:
                 pushOutline(outline, startP.x, it->x, startP.y);
                 startP = SegPoint(it->x, pending.rbegin()->first, 1);
             }
+            it = i;
         }
         return outline;
     }
 };
+typedef vector<int> IntVec;
+typedef vector<vector<int> > IntVecVec;
+void test() {
+	/*
+	 * Input
+[[1,5,9],[2,10,3],[7,14,9],[12,18,3],[16,20,9],[20,25,19],[22,31,7]]
+Output
+[[1,5,9],[5,7,3],[7,14,9],[14,16,3],[16,20,9],[22,31,7]]
+Expected
+[[1,5,9],[5,7,3],[7,14,9],[14,16,3],[16,20,9],[20,25,19],[25,31,7]]
+	 */
 
+	IntVecVec a = {{1,5,9},{2,10,3},{7,14,9},{12,18,3},{16,20,9},{20,25,19},{22,31,7}};
+	Solution sln;
+	IntVecVec b = sln.buildingOutline(a);
+	cout << b;
+}
+} // BuildingOutline
 int main()
 {
+	BuildingOutline::test();
     return 0;
 }
