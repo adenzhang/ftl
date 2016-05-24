@@ -1,0 +1,6 @@
+/Debug/
+/Release/
+*~
+*.swp
+/tmp/
+*.o
