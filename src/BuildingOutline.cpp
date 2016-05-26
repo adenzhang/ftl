@@ -33,57 +33,20 @@ Please merge the adjacent outlines if they have the same height and make sure di
 #include <utility>
 #include <algorithm>
 #include <iostream>
+#include <fstream>
+#include <sstream>
+#include <cctype>
+
+#include "ContainerSerialization.h"
 
 using namespace std;
+using namespace serialization;
+
+extern std::vector<std::vector<int> > a_15_in;
 
 namespace BuildingOutline {
-template<typename List>
-std::ostream& printList(std::ostream& os, List& v) {
-	os << "[";
-	for(typename List::iterator it2=v.begin(); it2!=v.end(); ++it2) {
-		if( it2 == v.begin() ) {
-			os << *it2;
-		}else{
-			os << "," << *it2;
-		}
-	}
-	os << "]";
-	return os;
-}
-template<typename Map>
-std::ostream& printMap(std::ostream& os, Map& v) {
-	os << "{";
-	for(typename Map::iterator it2=v.begin(); it2!=v.end(); ++it2) {
-		if( it2 == v.begin() ) {
-			os << it2->first <<":" << it2->second;
-		}else{
-			os << "," << it2->first <<":" << it2->second;
-		}
-	}
-	os << "}";
-	return os;
-}
-template<typename Key, typename Value>
-std::ostream& operator<<(std::ostream& os, std::map<Key,Value>& v) {
-	return printMap(os, v);
-}
-template<typename Key, typename Value>
-std::ostream& operator<<(std::ostream& os, std::unordered_map<Key, Value>& v) {
-	return printMap(os, v);
-}
-template<typename Elm>
-std::ostream& operator<<(std::ostream& os, std::vector<Elm>& v) {
-	return printList(os, v);
-}
-template<typename Elm>
-std::ostream& operator<<(std::ostream& os, std::list<Elm>& v) {
-	return printList(os, v);
-}
-template<typename Elm>
-std::ostream& operator<<(std::ostream& os, std::set<Elm>& v) {
-	return printList(os, v);
-}
 
+//============================================================================
 class Solution {
 public:
     struct SegPoint {
@@ -123,7 +86,7 @@ public:
         PointSetX points;
         vector<vector<int> > outline;
         // construct point set in order
-        for(int i=0; i< buildings.size(); ++i) {
+        for(size_t i=0; i< buildings.size(); ++i) {
             vector<int>& seg = buildings[i];
             points.insert(SegPoint(seg[0], seg[2], 1));
             points.insert(SegPoint(seg[1], seg[2], 0));
@@ -170,10 +133,16 @@ Expected
 [[1,5,9],[5,7,3],[7,14,9],[14,16,3],[16,20,9],[20,25,19],[25,31,7]]
 	 */
 
-	IntVecVec a = {{1,5,9},{2,10,3},{7,14,9},{12,18,3},{16,20,9},{20,25,19},{22,31,7}};
+
+	IntVecVec a; //= {{1,5,9},{2,10,3},{7,14,9},{12,18,3},{16,20,9},{20,25,19},{22,31,7}};
+	string text = "[[1,5,9],[2,10,3],[7,14,9],[12,18,3],[16,20,9],[20,25,19],[22,31,7]]";
+	istringstream ss(text);
+	ifstream ifs("15.in");
+	ofstream ofs("15.out");
+	ifs >> a;
 	Solution sln;
 	IntVecVec b = sln.buildingOutline(a);
-	cout << b;
+	ofs << b;
 }
 } // BuildingOutline
 int main()
