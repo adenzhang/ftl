@@ -145,7 +145,7 @@ Expected
 	ofs << b;
 }
 } // BuildingOutline
-int main()
+int main_BuildingOutline()
 {
 	BuildingOutline::test();
     return 0;

@@ -29,14 +29,8 @@ public:
         if( itm == fmap.end() )
             return -1;
 
-        int v = -1;
-        FreqSet::iterator it = itm->second;
-        v = it->value;
-        fset.push_back(*it);
-        fset.erase(it);
-        it = fset.end();
-        --it;
-        itm->second = it;
+        int v = itm->second->value;
+        fset.splice(fset.end(), fset, itm->second);
 
         return v;
     }
@@ -44,31 +38,21 @@ public:
         FMap::iterator itm = fmap.find(key);
         FreqSet::iterator it;
         if( itm == fmap.end() ) {
-            fset.push_back(KeyValue(key,value));
-            it = fset.end();
-            --it;
-            fmap[key] = it;
+            fmap[key] = fset.emplace(fset.end(), key,value);
+            if( fmap.size() > cap ) {
+                // remove LRU
+                fmap.erase(fset.front().key);
+                fset.pop_front();
+            }
         }else{
             it = itm->second;
             it->value = value;
-            fset.push_back(*it);
-            fset.erase(it);
-            it = fset.end();
-            --it;
-            itm->second = it;
-
-            return;
-        }
-        if( fmap.size() > cap ) {
-            // remove LRU
-            int rmKey = fset.front().key;
-            fset.pop_front();
-            fmap.erase(rmKey);
+            fset.splice(fset.end(), fset, itm->second);
         }
     }
 };
 
-int main_LRUCache()
+int main() //_LRUCache()
 {
     LRUCache lru(2);
 
