@@ -1,7 +1,7 @@
 #include <list>
 #include <algorithm>
 #include <iostream>
-#include <map>
+#include <unordered_map>
 
 using namespace std;
 
@@ -16,7 +16,7 @@ class LRUCache{
 public:
 
     typedef list<KeyValue> FreqSet;
-    typedef map<int, FreqSet::iterator > FMap;
+    typedef unordered_map<int, FreqSet::iterator > FMap;
     FMap fmap;
     FreqSet fset; // back is new, front is old
     const int   cap;
@@ -52,7 +52,7 @@ public:
     }
 };
 
-int main() //_LRUCache()
+int main_LRUCache()
 {
     LRUCache lru(2);
 

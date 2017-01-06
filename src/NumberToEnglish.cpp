@@ -66,7 +66,7 @@ public:
     }
 };
 
-int main()
+int main_NumberToEnglish()
 {
     Solution sln;
 //    cout << sln.numberToWords(0) << endl;
