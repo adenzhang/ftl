@@ -8,17 +8,24 @@
 
 #ifndef CONTAINERSERIALIZATION_H_
 #define CONTAINERSERIALIZATION_H_
-
+#include <iostream>
+#include <map>
+#include <unordered_map>
+#include <vector>
+#include <deque>
+#include <stack>
+#include <list>
+#include <set>
 
 namespace serialization {
 
-std::ostream& operator<<(std::ostream& os, const std::string& s) {
+inline std::ostream& operator<<(std::ostream& os, const std::string& s) {
 	return os << '\"' << s << '\"';
 }
 template<typename List>
-std::ostream& printList(std::ostream& os, List& v) {
+std::ostream& printList(std::ostream& os, const List& v) {
 	os << "[";
-	for(typename List::iterator it2=v.begin(); it2!=v.end(); ++it2) {
+	for(typename List::const_iterator it2=v.begin(); it2!=v.end(); ++it2) {
 		if( it2 == v.begin() ) {
 			os << *it2;
 		}else{
@@ -29,9 +36,9 @@ std::ostream& printList(std::ostream& os, List& v) {
 	return os;
 }
 template<typename Map>
-std::ostream& printMap(std::ostream& os, Map& v) {
+std::ostream& printMap(std::ostream& os, const Map& v) {
 	os << "{";
-	for(typename Map::iterator it2=v.begin(); it2!=v.end(); ++it2) {
+	for(typename Map::const_iterator it2=v.begin(); it2!=v.end(); ++it2) {
 		if( it2 == v.begin() ) {
 			os << it2->first <<":" << it2->second;
 		}else{
@@ -42,34 +49,34 @@ std::ostream& printMap(std::ostream& os, Map& v) {
 	return os;
 }
 template<typename Key, typename Value>
-std::ostream& operator<<(std::ostream& os, std::map<Key,Value>& v) {
+std::ostream& operator<<(std::ostream& os, const std::map<Key,Value>& v) {
 	return printMap(os, v);
 }
 template<typename Key, typename Value>
-std::ostream& operator<<(std::ostream& os, std::unordered_map<Key, Value>& v) {
+std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, Value>& v) {
 	return printMap(os, v);
 }
 template<typename Elm>
-std::ostream& operator<<(std::ostream& os, std::vector<Elm>& v) {
+std::ostream& operator<<(std::ostream& os, const std::vector<Elm>& v) {
 	return printList(os, v);
 }
 template<typename Elm>
-std::ostream& operator<<(std::ostream& os, std::list<Elm>& v) {
+std::ostream& operator<<(std::ostream& os, const std::list<Elm>& v) {
 	return printList(os, v);
 }
 template<typename Elm>
-std::ostream& operator<<(std::ostream& os, std::set<Elm>& v) {
+std::ostream& operator<<(std::ostream& os, const std::set<Elm>& v) {
 	return printList(os, v);
 }
 
 //=========== read ============================
 // return number of chars skipped
-int skipSpace(std::istream& is) {
+inline int skipSpace(std::istream& is) {
 	int count=0;
 	for(; std::isspace(is.peek()); ++count, is.ignore() ) ;
 	return count;
 }
-std::istream& operator>>(std::istream& is, std::string& s) {
+inline std::istream& operator>>(std::istream& is, std::string& s) {
 	skipSpace(is);
 	if( '\"' != is.peek() ) return is;
 	is.ignore();

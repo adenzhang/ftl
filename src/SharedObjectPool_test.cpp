@@ -19,7 +19,7 @@ typedef std::shared_ptr<A> APtr;
 
 }
 
-int main() //_shared_object_pool_test()
+int main_shared_object_pool_test()
 {
     using namespace ftl;
     typedef shared_object_pool<A> SharedAPool;
