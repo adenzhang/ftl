@@ -91,7 +91,7 @@ std::ostream& operator<<( std::ostream& os, const KeyValue &e) {
 
 }
 
-int main()
+int main_LFUCache()
 {
 
 //    LFUCache cache( 2 /* capacity */ );

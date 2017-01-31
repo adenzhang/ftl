@@ -1,43 +1,53 @@
-/*
+#include <list>
+#include <algorithm>
+#include <iostream>
+#include <string>
+#include <vector>
+#include <unordered_map>
+#include <deque>
+#include <stack>
+#include <sstream>
+#include <memory>
 
-#include <virtual_function.h>
+using namespace std;
 
-void test_virtual_function()
+
+int totalScore(std::vector<std::string> blocks, int n)
 {
-    vf::Base    b(1);
-    vf::Derived d(2);
-    vf::DDerived dd(3);
-
-    vf::Base   *pb2 = &d, *pb3 = &dd;
-    vf::Derived *pd2 = &d, *pd3 = &dd;
-
-    vf::call( std::bind(&vf::Base::printMe, b) );
-//    vf::call( std::bind(&vf::Derived::printMe, b) ); // compiling error
-    vf::call( std::bind(&vf::Base::printMe, d) );
-    vf::call( std::bind(&vf::Derived::printMe, d) );
-
-    //- test virtual function overrides non-virtual function
-    std::cout << "--- virtual function overrides non-virtual function: bind" << std::endl;
-    vf::call( std::bind(&vf::Base::printId, b) );
-    vf::call( std::bind(&vf::Base::printId, d) );
-    vf::call( std::bind(&vf::Derived::printId, d) );
-    vf::call( std::bind(&vf::Base::printId, dd) );
-    vf::call( std::bind(&vf::Derived::printId, dd) );
-    vf::call( std::bind(&vf::DDerived::printId, dd) );
-
-    std::cout << "--- virtual function overrides non-virtual function: directly call" << std::endl;
-    
-    pb2->printId();
-    pb3->printId();
-    pd2->printId();
-    pd3->printId();
+    typedef std::vector<std::string> SVec;
+    typedef deque<int> IQue;
+    int T = 0;
+    IQue lastV;
+    int t = 0;
+    for(int i=0;i < n; ++i) {
+        string& s = blocks[i];
+        switch( s[0] ) {
+        case 'X':
+            lastV.push_back(lastV.back() *2);
+            T += lastV.back();
+            break;
+        case '+':
+            lastV.push_back( lastV.back() + lastV[lastV.size()-2]);
+            T += lastV.back();
+            break;
+        case 'Z':
+            T -= lastV.back();
+            lastV.pop_back();
+            break;
+        default:
+            lastV.push_back(atoi(s.c_str()));
+            T += lastV.back();
+        }
+    }
+    return T;
 }
+// FUNCTION SIGNATURE ENDS
 
+using namespace std;
 int main_testcpp(int argn, const char** argv)
 {
-    std::cout << "Begin TestCpp!" << std::endl;
-    test_virtual_function();
+    std::vector<std::string> blocks={"1", "2", "+", "Z"};//{"5", "-2", "4", "Z", "X", "9", "+", "+"};
+    std::cout << "Begin TestCpp!" << totalScore(blocks, blocks.size())<< std::endl;
     return 0;
 }
-*/
 
