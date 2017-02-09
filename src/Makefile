@@ -1,7 +1,7 @@
 CXXFLAGS = -g -O3 -Wall -fmessage-length=0 -std=c++11
 
 #OBJS = $(patsubst %.cpp, %.o, $(wildcard *.cpp))
-OBJS = BuildingOutline.o 15_in.cpp
+OBJS = IsNumeric.o
 LIBS =
 INCLUDES = -I.
 
