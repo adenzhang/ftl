@@ -66,6 +66,31 @@ public:
       return s.substr((centerIndex - 1 - maxLen)/2, maxLen);
     }
 
+    class Solution {
+    public:
+        string longestPalindrome(string s) {
+            typedef vector<int> IntVec;
+            const int N = s.length();
+            if( N<2 ) {
+                return s;
+            }
+            IntVec dp(N); // dp[i]: whether it is a palindrom starting at i and ending at current position.
+            int palStart = 0, palLen = 1;
+            dp[0] = 1;
+            for(int i=1; i<N; ++i) {
+                dp[i] = 1;
+                for(int j=0; j<i; ++j) {
+                    dp[j] = (dp[j+1] && s[j] == s[i])?1:0;
+                    if( dp[j] && i-j+1 > palLen ) {
+                        palStart = j;
+                        palLen = i-j+1;
+                    }
+                }
+            }
+            return s.substr(palStart, palLen);
+        }
+    };
+
 };
 
 static void test() {
