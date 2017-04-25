@@ -27,12 +27,25 @@ typedef vector<int> IntVector;
 typedef unordered_map<int, int> IntIntHashMap;
 typedef map<int, int> IntIntTreeMap;
 
+struct A {
+	virtual void f() {}
+};
+struct B: virtual A {
+	virtual void f() {}
+};
+struct C: virtual A {
+	virtual void f() {}
+};
+struct D: B, C  {
+	virtual void f() {}
+};
+
 
 int main() {
 	IntVector v{1, 2, 3};
 
 	IntIntHashMap m{{10, 1}, {20, 2}};
 
-	cout << "v:" << sqrt(5, 9) << endl;
+	cout << "v:" << sqrt(5.9) << endl;
 	cout << "m:" << sqrt(-4.5)<< endl;
 }

@@ -1,7 +1,7 @@
 CXXFLAGS = -g -O3 -Wall -fmessage-length=0 -std=c++14
 
 #OBJS = $(patsubst %.cpp, %.o, $(wildcard *.cpp))
-OBJS = MergeSortedLists.o
+OBJS = CutRod.o
 LIBS =
 INCLUDES = -I.
 
