@@ -1,10 +1,12 @@
-#include "pooled_reactor.h"
-#include "catch.hpp"
+#include <ftl/reactors.h>
+
+#define CATCH_CONFIG_MAIN
+#include "ftl/catch.hpp"
 #include <vector>
 #include <iostream>
 #include <sstream>
 
-using namespace reactor;
+using namespace ftl::reactor;
 
 using EventType = int ;
 
@@ -18,7 +20,7 @@ public:
 //    using Reactors = typename ReactorsPtr::element_type;
     using ReactorsPtr = typename Reactors::ReactorsPtr;
     ReactorsPtr reactors;
-    std::vector< reactor::IEventSender<EventType>* > senders;
+    std::vector< IEventSender<EventType>* > senders;
     std::atomic<size_t> numEventsRcv;
 
     size_t CountEventsRcv() {

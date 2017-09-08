@@ -1,5 +1,5 @@
 #include <iostream>
-#include "SharedObjectPool.h"
+#include <ftl/shared_object_pool.h>
 
 using namespace std;
 namespace {

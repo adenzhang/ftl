@@ -19,15 +19,15 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
-#include "ContainerSerialization.h"
+#include <ftl/container_serialization.h>
 using namespace std;
-using namespace serialization;
+using namespace ftl::serialization;
 
 typedef vector<int> IntVector;
 typedef unordered_map<int, int> IntIntHashMap;
 typedef map<int, int> IntIntTreeMap;
 
-namespace MergeSortedLists {
+namespace array_split_max_diff {
 
 int solution_sqrt(int A, int B) {
 	// return number of positive integer x that A << x*x << B.
@@ -71,6 +71,6 @@ int array_split_max_diff(vector<int> &A) {
 
 }
 
-int main_MergeSortedLists() {
+int main_array_split_max_diff() {
 }
 

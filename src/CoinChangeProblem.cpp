@@ -27,7 +27,7 @@ First line will contain 2 integer N and M respectively.
 Second line contain M integer that represent list of distinct coins that are available in infinite amount.
  */
 
-#include "ContainerSerialization.h"
+#include <ftl/container_serialization.h>
 #include <list>
 #include <algorithm>
 #include <iostream>
@@ -39,7 +39,7 @@ Second line contain M integer that represent list of distinct coins that are ava
 #include <sstream>
 
 using namespace std;
-using namespace serialization;
+using namespace ftl::serialization;
 
 namespace CoinChangeProblem {
 typedef vector<int> IntVec;
@@ -66,7 +66,7 @@ int solve(const IntVec& C, int N) {
     return dl[N];
 }
 }
-int main() {
+int main_CoinChangeProblem() {
     using namespace CoinChangeProblem;
     cout << "ans:" << solve({1,2,3}, 4) << endl; // 4
     cout << "ans:" << solve({2, 5,3,6}, 10) << endl; // 5

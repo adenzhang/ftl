@@ -19,9 +19,9 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
-#include "ContainerSerialization.h"
+#include <ftl/container_serialization.h>
 using namespace std;
-using namespace serialization;
+using namespace ftl::serialization;
 
 typedef vector<int> IntVector;
 typedef unordered_map<int, int> IntIntHashMap;
@@ -47,15 +47,7 @@ public:
 private:
 	void operator=(const char*){}
 };
-int main() {
-//	int i=5,j=12;
-//	printf("%d %d", i << j , i>>j);
-	cout << (11^5) << endl;
-	printf("sdf%!\n");
-	return 0;
-	IntVector v{1, 2, 3};
-
-	IntIntHashMap m{{10, 1}, {20, 2}};
+int main_app() {
 
 	cout << "v:" << sqrt(5.9) << endl;
 	cout << "m:" << sqrt(-4.5)<< endl;

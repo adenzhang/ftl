@@ -1,11 +1,12 @@
 CXXFLAGS = -g -O3 -Wall -fmessage-length=0 -std=c++14
 
 #OBJS = $(patsubst %.cpp, %.o, $(wildcard *.cpp))
-OBJS = CutRod.o
+#OBJS = ReversePair.o
+OBJS = test_pooled_reactor.o
 LIBS =
 INCLUDES = -I.
 
-TARGET =	app
+TARGET = app
 
 $(TARGET):	$(OBJS)
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJS) $(LIBS) $(INCLUDES)

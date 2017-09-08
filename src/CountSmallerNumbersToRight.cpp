@@ -19,9 +19,9 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
-#include "ContainerSerialization.h"
+#include <ftl/container_serialization.h>
 using namespace std;
-using namespace serialization;
+using namespace ftl::serialization;
 
 /**
  * You are given an integer array nums and you have to return a new counts array.
@@ -39,7 +39,7 @@ struct TreeNode {
 	T val;
 	size_t valcount;
 	size_t treesize; //
-	static Comp lessThan;
+    Comp lessThan;
 
 	TreeNode(TreeNode* parent, const T& v, int n=1): left(nullptr), right(nullptr), parent(parent), val(v), valcount(n), treesize(n){}
 
@@ -114,14 +114,12 @@ struct TreeNode {
 		TreeNode* p = this;
 		do{
 			if( lessThan(p->val, v) ) {
-				if( !p->right ) {
+				if( !p->right )
 					return p->next();
-				}
 				p = p->right;
 			}else if( lessThan(v, p->val) ) {
-				if( !p->left ) {
+				if( !p->left )
 					return p;
-				}
 				p = p->left;
 			}else{
 				return p;
@@ -136,7 +134,7 @@ struct TreeNode {
 				if( !p->right ) return p->next();
 				p = p->right;
 			}else if( lessThan(v, p->val) ) {
-				if( !p->left ) return p->prev();
+				if( !p->left ) return p;
 				p = p->left;
 			}else{
 				return p->next();
@@ -184,6 +182,6 @@ void test() {
 }
 }
 
-int main() {
+int main_CountSmallerNumbersToRight() {
 	CountSmallerNumbersToRight::test();
 }

@@ -1,10 +1,13 @@
 #ifndef _CONCURRENT_QUEUE_ADAPTER_H
 #define _CONCURRENT_QUEUE_ADAPTER_H
 
+
 #ifdef QUEUE_MOODYCAMEL
 
 #include "concurrent_queue.h"
 #include "blocking_concurrent_queue.h"
+
+namespace ftl {
 
 template<typename T>
 class lockfree_queue: moodycamel::ConcurrentQueue<T>
@@ -58,12 +61,15 @@ public:
     }
 };
 
+}
 #endif // QUEUE_MOODYCAMEL
 
 #ifdef QUEUE_OPAQUE
 
 #include "opaque/sync/mpsc_array_queue.h"
 #include "opaque/sync/blocking_mpsc_array_queue.h"
+
+namespace ftl {
 
 template<typename T>
 class lockfree_queue
@@ -140,12 +146,15 @@ protected:
     std::unique_ptr<SuperType> q;
     std::atomic<size_t> siz;
 };
+}
 
 #endif // QUEUE_OPAQUE
 
 #ifdef QUEUE_TBB
 
 #include "tbb/concurrent_queue.h"
+
+namespace ftl {
 
 // MPMC queue
 template<typename T>
@@ -161,7 +170,7 @@ public:
         this->set_capacity( s );
     }
 };
-
+}
 #endif // QUEUE_TBB
 
 

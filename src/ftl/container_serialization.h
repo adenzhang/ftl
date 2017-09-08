@@ -17,7 +17,7 @@
 #include <list>
 #include <set>
 
-namespace serialization {
+namespace ftl{ namespace serialization {
 
 inline std::ostream& operator<<(std::ostream& os, const std::string& s) {
 	return os << '\"' << s << '\"';
@@ -176,7 +176,7 @@ std::istream& operator>>(std::istream& os, std::set<Elm>& v) {
 	return readList(os, v);
 }
 
-}
+} }
 
 
 #endif /* CONTAINERSERIALIZATION_H_ */

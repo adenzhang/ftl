@@ -1,4 +1,4 @@
-#include "ContainerSerialization.h"
+#include <ftl/container_serialization.h>
 #include <list>
 #include <algorithm>
 #include <iostream>
@@ -10,7 +10,7 @@
 #include <sstream>
 
 using namespace std;
-using namespace serialization;
+using namespace ftl::serialization;
 
 namespace {
 struct KeyValue {

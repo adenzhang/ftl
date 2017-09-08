@@ -19,9 +19,9 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
-#include "ContainerSerialization.h"
+#include <ftl/container_serialization.h>
 using namespace std;
-using namespace serialization;
+using namespace ftl::serialization;
 
 /**
  Objec­tive: Given a rod of length n inches and a table of prices pi, i=1,2,…,n,
@@ -81,6 +81,6 @@ void test() {
 
 }
 
-int main() {
+int main_cut_rod() {
 	CutRod::test();
 }

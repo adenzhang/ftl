@@ -48,7 +48,7 @@ set(Boost_USE_STATIC_LIBS OFF)
 set(Boost_USE_MULTITHREADED ON)  
 set(Boost_USE_STATIC_RUNTIME OFF) 
 
-add_definitions( -DBOOST_ALL_DYN_LINK -std=c++0x)
+add_definitions( -DBOOST_ALL_DYN_LINK -std=c++14)
 
 LINK_DIRECTORIES(${LIBPATHS})
 
@@ -58,7 +58,7 @@ message("- link dirs: ${LIBPATHS}")
 #----------------------------------
 
 if( NOT WIN32 )
-	set(LIBS ${LIBS} -lrt)
+        set(LIBS ${LIBS} -lrt -lpthread)
 endif()
 
 set(INCLUDES ${INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/../src)
@@ -69,6 +69,7 @@ include_directories(${INCLUDES})
 
 file(GLOB SRC
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/*.h"
+#    ${CMAKE_CURRENT_SOURCE_DIR}/../src/test_pooled_reactor.cpp
     "${CMAKE_CURRENT_SOURCE_DIR}/../src/*.cpp"
 )
 

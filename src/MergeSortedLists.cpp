@@ -19,9 +19,9 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
-#include "ContainerSerialization.h"
+#include <ftl/container_serialization.h>
 using namespace std;
-using namespace serialization;
+using namespace ftl::serialization;
 
 typedef vector<int> IntVector;
 typedef unordered_map<int, int> IntIntHashMap;
@@ -71,6 +71,6 @@ public:
 
 }
 
-int main() {
+int main_MergeSortedLists() {
 }
 

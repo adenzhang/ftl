@@ -37,10 +37,10 @@ Please merge the adjacent outlines if they have the same height and make sure di
 #include <sstream>
 #include <cctype>
 
-#include "ContainerSerialization.h"
+#include <ftl/container_serialization.h>
 
 using namespace std;
-using namespace serialization;
+using namespace ftl::serialization;
 
 extern std::vector<std::vector<int> > a_15_in;
 

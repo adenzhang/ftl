@@ -19,9 +19,9 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
-#include "ContainerSerialization.h"
+#include <ftl/container_serialization.h>
 using namespace std;
-using namespace serialization;
+using namespace ftl::serialization;
 
 /*
  * KthSmallestSumFromSortedArrays.cpp
@@ -73,7 +73,7 @@ void test() {
 
 }
 
-int main() {
+int main_KthSmallestSumFromSortedArrays() {
 	KthSmallestSumFromSortedArrays::test();
 }
 

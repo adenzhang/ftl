@@ -10,8 +10,8 @@
 #include <sstream>
 #include <cassert>
 
-#define QUEUE_TBB
-//#define QUEUE_MOODYCAMEL
+//#define QUEUE_TBB
+#define QUEUE_MOODYCAMEL
 //#define QUEUE_OPAQUE
 
 //#define USE_LOCKFREE_QUEUE
@@ -28,8 +28,8 @@
 #include "concurrent_queue_adapter.h"
 
 //#define _REACTOR_DBG
-namespace reactor
-{
+namespace ftl {
+namespace reactor {
 
 struct IEventSenderBase
 {
@@ -822,4 +822,4 @@ public:
 };
 using GroupedReactorsPtr = std::shared_ptr<GroupedReactors>;
 
-}
+} }
