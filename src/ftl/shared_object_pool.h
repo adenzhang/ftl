@@ -3,34 +3,78 @@
 
 #include <memory>
 #include <deque>
-//#include <cassert>
+#include <cassert>
 #include <iostream>
+
+////============================
+
+// write an expression in terms of type 'T' to create a trait which is true for a type which is valid within the expression
+#define FTL_CHECK_EXPR( traitsName, ... )                                                                                                           \
+    template<typename U = void>                                                                                                                     \
+    struct traitsName                                                                                                                               \
+    {                                                                                                                                               \
+        using type = traitsName;                                                                                                                    \
+                                                                                                                                                    \
+        template<class T>                                                                                                                           \
+        static auto Check( int ) -> decltype( __VA_ARGS__, bool() );                                                                                \
+                                                                                                                                                    \
+        template<class>                                                                                                                             \
+        static int Check( ... );                                                                                                                    \
+                                                                                                                                                    \
+        static const bool value = ::std::is_same<decltype( Check<U>( 0 ) ), bool>::value;                                                           \
+    }
+
+#define FTL_HAS_MEMBER( member, name ) FTL_CHECK_EXPR( name, ::std::declval<T>().member )
+
+#define FTL_IS_COMPATIBLE_FUNC_ARG( func, name ) FTL_CHECK_EXPR( name, func(::std::declval<T>() ) )
+
+#define FTL_IS_COMPATIBLE_FUNC_ARG_LVALUE( func, name ) FTL_CHECK_EXPR( name, func(::std::declval<T &>() ) )
+
+#define FTL_CHECK_EXPR_TYPE( traitsName, ... )                                                                                                      \
+    template<typename R, typename U = void>                                                                                                         \
+    struct traitsName                                                                                                                               \
+    {                                                                                                                                               \
+        using type = traitsName;                                                                                                                    \
+                                                                                                                                                    \
+        template<class T>                                                                                                                           \
+        static std::enable_if_t<std::is_same<R, decltype( __VA_ARGS__ )>::value, bool> Check( int );                                                \
+                                                                                                                                                    \
+        template<class>                                                                                                                             \
+        static int Check( ... );                                                                                                                    \
+                                                                                                                                                    \
+        static const bool value = ::std::is_same<decltype( Check<U>( 0 ) ), bool>::value;                                                           \
+    }
+
+#define FTL_HAS_MEMBER_TYPE( member, name ) FTL_CHECK_EXPR_TYPE( name, ::std::declval<T>().member )
+
+////============================
 
 namespace ftl
 {
-// forward gen_iterator
-// requires ContainerT define types:
-//     class node_type which has operator bool() and operator==()
-//     class value_type
-//
-// and implement methods:
-//     bool Container::next(node_type&)
-//     bool Container::is_end(const node_type&)
-//     value_type* Container::get_value(const node_type) const
-//
 
+//! forward gen_iterator
+//! requires ContainerT define types:
+//!     class node_type which has operator bool() and operator==()
+//!     class value_type
+//!
+//! and implement methods:
+//!     bool Container::next(node_type&)
+//!     bool Container::is_end(const node_type&)
+//!     value_type* Container::get_value(const node_type&) const
+//!
 template<typename ContainerT,
          bool isConstIter = false,
-         typename ValueT = std::conditional_t<isConstIter, const typename ContainerT::value_type, typename ContainerT::value_type>>
+         typename ValueT = std::conditional_t<isConstIter, const typename ContainerT::value_type, typename ContainerT::value_type>,
+         typename NodeT = typename ContainerT::node_type>
 struct gen_iterator
 {
     using this_type = gen_iterator;
     using iter_type = this_type;
     using container_type = ContainerT;
 
-    using node_type = typename ContainerT::node_type;
     using value_type = std::remove_const_t<ValueT>;
-    using iter_value_type = ValueT;
+    using node_type = NodeT;
+    using iter_value_type = value_type;
 
     node_type mNode;
     container_type *mContainer;
@@ -48,19 +92,19 @@ struct gen_iterator
         if ( mNode == a.mNode )
             return true;
         if ( !mNode )
-            return a.mContainer->is_end( a.mNode );
+            return is_end( *a.mContainer, a.mNode );
         if ( !a.mNode )
-            return mContainer->is_end( mNode );
+            return is_end( *mContainer, mNode );
         return false;
     }
     iter_type &operator++()
     {
-        mContainer->next( mNode );
+        next( *mContainer, mNode );
         return *this;
     }
     iter_value_type *operator->()
     {
-        return mContainer->get_value( mNode );
+        return get_value( *mContainer, mNode );
     }
 
     //-- derived operators
@@ -87,6 +131,187 @@ struct gen_iterator
     {
         return const_cast<this_type &>( *this ).operator*();
     }
+
+    //-- others
+    node_type &get_node()
+    {
+        return mNode;
+    }
+
+protected:
+    FTL_CHECK_EXPR_TYPE( has_member_next, std::declval<T>().next( std::declval<node_type>() ) );
+    FTL_CHECK_EXPR_TYPE( has_global_next, next( std::declval<T>(), std::declval<node_type>() ) );
+
+    template<typename C, typename N>
+    std::enable_if_t<has_member_next<bool, C>::value, bool> next( N &n )
+    {
+        return mContainer->next( n );
+    }
+    template<typename C, typename N>
+    std::enable_if_t<has_global_next<bool>::value, bool> next( N &n )
+    {
+        return next( *mContainer, n );
+    }
+
+
+    FTL_CHECK_EXPR_TYPE( has_member_is_end, std::declval<T>().is_end( std::declval<const node_type>() ) );
+    FTL_CHECK_EXPR_TYPE( has_global_is_end, is_end( std::declval<T>(), std::declval<const node_type>() ) );
+
+    template<typename C, typename N>
+    std::enable_if_t<has_member_is_end<bool, C>::value, bool> is_end( const N &n )
+    {
+        return mContainer->is_end( n );
+    }
+    template<typename C, typename N>
+    std::enable_if_t<has_global_is_end<bool>::value, bool> is_end( const N &n )
+    {
+        return is_end( *mContainer, n );
+    }
+
+    FTL_CHECK_EXPR_TYPE( has_member_get_value, std::declval<T>().get_value( std::declval<const node_type>() ) );
+    FTL_CHECK_EXPR_TYPE( has_global_get_value, get_value( std::declval<T>(), std::declval<const node_type>() ) );
+
+    template<typename C, typename N>
+    std::enable_if_t<has_member_get_value<value_type *, C>::value, bool> get_value( const N &n )
+    {
+        return mContainer->get_value( n );
+    }
+    template<typename C, typename N>
+    std::enable_if_t<has_global_get_value<value_type *>::value, bool> get_value( const N &n )
+    {
+        return get_value( *mContainer, n );
+    }
+};
+
+//! intrusive_singly_list
+//! type T must have
+//! - node_type& get_node()
+//!
+
+struct simple_singly_list
+{
+    using this_type = simple_singly_list;
+    struct data_type
+    {
+        data_type *next = nullptr;
+
+        void reset()
+        {
+            next = nullptr;
+        }
+    };
+    using value_type = data_type *;
+    using node_type = data_type *;
+
+    node_type mHead = nullptr;
+
+    this_type &push_front( value_type &n )
+    {
+        if ( n )
+        {
+            n->next = mHead;
+            mHead = n;
+        }
+        return *this;
+    }
+
+    template<typename F>
+    node_type find_if( F &&func ) const
+    {
+        for ( auto p = mHead; p; p = p->next )
+            if ( func( p ) )
+                return p;
+        return nullptr;
+    }
+
+    node_type pop_front()
+    {
+        node_type r = mHead;
+        if ( r )
+            mHead = r->next;
+        return r;
+    }
+    this_type &push( value_type &n )
+    {
+        return push_front( n );
+    }
+    node_type pop()
+    {
+        return pop_front();
+    }
+
+    node_type insert_after( node_type pos, value_type d )
+    {
+        d->next = pos->next;
+        pos->next = d;
+        return d;
+    }
+    void remove_after( node_type node )
+    {
+        if ( node->next )
+        {
+            auto p = node->next;
+            node->next = node->next->next;
+            p->reset();
+        }
+    }
+
+    void remove( node_type node )
+    {
+        if ( !node )
+            return;
+        if ( node == mHead )
+        {
+            mHead = node->next;
+            node->reset();
+            return;
+        }
+        else
+        {
+            node_type prev = find_if( [&]( node_type &n ) { return n->next == node; } );
+            remove_after( prev );
+        }
+    }
+
+    //- iterator support
+
+    using iterator = gen_iterator<this_type, false>;
+    using const_iterator = gen_iterator<this_type, true>;
+
+    bool is_end( const node_type &n ) const
+    {
+        return !n;
+    }
+    bool next( node_type &n )
+    {
+        if ( !n )
+            return false;
+        n = n->next;
+        return true;
+    }
+    value_type *get_value( const node_type &n ) const
+    {
+        return &const_cast<node_type &>( n );
+    }
+    iterator begin()
+    {
+        return {mHead, this};
+    }
+    iterator end()
+    {
+        return {node_type(), this};
+    }
+
+    //- modify by iterator
+
+    void erase( iterator it )
+    {
+        remove( it.get_node() );
+    }
+    iterator insert_after( iterator it, node_type n )
+    {
+        return {insert_after( it.get_node(), n ), this};
+    }
 };
 
 
@@ -104,6 +329,7 @@ protected:
     circular_queue &operator=( const circular_queue & ) = delete;
 
 public:
+    using this_type = circular_queue;
     static const size_t capacity = CapacityT;
 
     //- iterator support
@@ -111,8 +337,8 @@ public:
     using value_type = T;
     using node_type = T *;
 
-    using iterator = gen_iterator<circular_queue, false>;
-    using const_iterator = gen_iterator<circular_queue, true>;
+    using iterator = gen_iterator<this_type, false>;
+    using const_iterator = gen_iterator<this_type, true>;
 
     bool is_end( const node_type &n ) const
     {
