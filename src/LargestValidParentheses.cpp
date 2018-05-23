@@ -120,8 +120,8 @@ void test() {
 
 }
 
-//int main_LargestValidParentheses() {
-int main() {
+int main_LargestValidParentheses() {
+//int main() {
 
     LargestValidParentheses::test();
 }

@@ -20,6 +20,10 @@
 #include <iostream>
 #include <algorithm>
 #include <ftl/container_serialization.h>
+
+#define CATCH_CONFIG_MAIN
+#include "ftl/catch.hpp"
+
 using namespace std;
 using namespace ftl::serialization;
 

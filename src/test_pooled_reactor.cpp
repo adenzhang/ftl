@@ -1,6 +1,5 @@
 #include <ftl/reactors.h>
 
-#define CATCH_CONFIG_MAIN
 #include "ftl/catch.hpp"
 #include <vector>
 #include <iostream>
@@ -99,7 +98,7 @@ public:
 //    DoWork();
 //}
 
-TEST_CASE_METHOD(ReactorsTestFixture<PooledReactors>, "PooledReactors")
+TEST_CASE_METHOD(ReactorsTestFixture<PooledReactors>, "Test_PooledReactors")
 {
     DoWork();
 }
