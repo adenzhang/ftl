@@ -17,7 +17,41 @@
 #include <list>
 #include <set>
 
-namespace ftl{ namespace serialization {
+namespace ftl{
+
+template <class TempIO, class IOType>
+struct scoped_stream_redirect {
+    std::streambuf* rdbuf;
+    IOType& io;
+
+    scoped_stream_redirect() = delete;
+    scoped_stream_redirect(const scoped_stream_redirect&) = delete;
+    scoped_stream_redirect(scoped_stream_redirect&& a)
+        : rdbuf(a.rdbuf)
+        , io(a.io)
+    {
+    }
+
+    scoped_stream_redirect(TempIO& ss, IOType& io)
+        : rdbuf(io.rdbuf())
+        , io(io)
+    {
+        io.rdbuf(ss.rdbuf());
+    }
+    ~scoped_stream_redirect()
+    {
+        io.rdbuf(rdbuf);
+    }
+};
+
+template <class TempIO, class IOType>
+scoped_stream_redirect<TempIO, IOType> make_scoped_stream_redirect(TempIO& ss, IOType& io)
+{
+    return { ss, io };
+};
+
+
+namespace serialization {
 
 inline std::ostream& operator<<(std::ostream& os, const std::string& s) {
 	return os << '\"' << s << '\"';
