@@ -19,37 +19,77 @@
 
 namespace ftl{
 
-template <class TempIO, class IOType>
+struct StrLiteral
+{
+    const char* data = nullptr;
+    size_t len=0;
+};
+
+StrLiteral operator ""_sl(const char* s, size_t n)
+{
+    return {s, n};
+}
+
+template <class IOType, class TempIO >
 struct scoped_stream_redirect {
+    using stream_type = TempIO;
+    stream_type ss;
     std::streambuf* rdbuf;
     IOType& io;
 
     scoped_stream_redirect() = delete;
     scoped_stream_redirect(const scoped_stream_redirect&) = delete;
     scoped_stream_redirect(scoped_stream_redirect&& a)
-        : rdbuf(a.rdbuf)
+        : ss( std::move(a.ss) )
+        , rdbuf(a.rdbuf)
         , io(a.io)
     {
+        a.rdbuf = nullptr;
     }
 
-    scoped_stream_redirect(TempIO& ss, IOType& io)
+    scoped_stream_redirect(IOType& io, TempIO& ss)
         : rdbuf(io.rdbuf())
         , io(io)
     {
         io.rdbuf(ss.rdbuf());
     }
+    scoped_stream_redirect(IOType &io, const char *s)
+        : ss(s)
+        , rdbuf(io.rdbuf())
+        ,io(io)
+    {
+        io.rdbuf(ss.rdbuf());
+    }
     ~scoped_stream_redirect()
     {
-        io.rdbuf(rdbuf);
+        if(rdbuf)
+            io.rdbuf(rdbuf);
     }
 };
 
-template <class TempIO, class IOType>
-scoped_stream_redirect<TempIO, IOType> make_scoped_stream_redirect(TempIO& ss, IOType& io)
+
+template <class IOType, class TempIO, typename = std::enable_if_t<!std::is_constructible_v<TempIO, const char* >, void>>
+scoped_stream_redirect<IOType, TempIO> make_scoped_stream_redirect(IOType& io, TempIO& ss)
 {
-    return { ss, io };
+    return { io, ss };
 };
 
+template <class IOType, class T, typename = std::enable_if_t<std::is_constructible_v<T, const char>, void>>
+scoped_stream_redirect<IOType, std::stringstream> make_scoped_stream_redirect(IOType& io, T* str)
+{
+    return {  io, static_cast<const char*>(str) };
+};
+template <class IOType, class T, size_t N, typename = std::enable_if_t<std::is_constructible_v<T, const char >, void>>
+scoped_stream_redirect<IOType, std::stringstream> make_scoped_stream_redirect(IOType& io, T str[N])
+{
+    return {  io, static_cast<const char*>(str) };
+};
+
+template <class IOType, class T, typename = std::enable_if_t<std::is_same_v<T, StrLiteral>, void>>
+scoped_stream_redirect<IOType, std::stringstream> make_scoped_stream_redirect(IOType& io, T str)
+{
+    return {  io, static_cast<const char*>(str.data) };
+};
 
 namespace serialization {
 
