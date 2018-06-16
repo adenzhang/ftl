@@ -48,7 +48,7 @@ set(Boost_USE_STATIC_LIBS OFF)
 set(Boost_USE_MULTITHREADED ON)  
 set(Boost_USE_STATIC_RUNTIME OFF) 
 
-add_definitions( -DBOOST_ALL_DYN_LINK -std=c++17)
+add_definitions( -DUNITTEST_MODE -DBOOST_ALL_DYN_LINK -std=c++17)
 
 LINK_DIRECTORIES(${LIBPATHS})
 
@@ -69,8 +69,8 @@ include_directories(${INCLUDES})
 
 file(GLOB SRC
     "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
-#    ${CMAKE_CURRENT_SOURCE_DIR}/../src/test_pooled_reactor.cpp
-    "${CMAKE_CURRENT_SOURCE_DIR}/MinScalarProduct.cpp"
+    ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
+#    "${CMAKE_CURRENT_SOURCE_DIR}/MinScalarProduct.cpp"
 )
 
 add_executable( ${PROJNAME} ${SRC} )

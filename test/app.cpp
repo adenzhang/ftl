@@ -1,28 +1,31 @@
-#include <map>
-#include <set>
-#include <unordered_map>
-#include <unordered_set>
-#include <list>
-#include <cmath>
-#include <ctime>
-#include <climits>
-#include <deque>
-#include <queue>
-#include <stack>
-#include <bitset>
-#include <cstdio>
-#include <limits>
-#include <vector>
-#include <cstdlib>
-#include <fstream>
-#include <numeric>
-#include <sstream>
-#include <iostream>
-#include <algorithm>
-#include <ftl/container_serialization.h>
 
+#ifdef UNITTEST_MODE
 #define CATCH_CONFIG_MAIN
 #include "ftl/catch.hpp"
+#endif
+
+#include <algorithm>
+#include <bitset>
+#include <climits>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <deque>
+#include <fstream>
+#include <ftl/container_serialization.h>
+#include <iostream>
+#include <limits>
+#include <list>
+#include <map>
+#include <numeric>
+#include <queue>
+#include <set>
+#include <sstream>
+#include <stack>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 using namespace std;
 using namespace ftl::serialization;
@@ -32,27 +35,29 @@ typedef unordered_map<int, int> IntIntHashMap;
 typedef map<int, int> IntIntTreeMap;
 
 struct A {
-	virtual void f() {}
+    virtual void f() {}
 };
-struct B: virtual A {
-	virtual void f() {}
+struct B : virtual A {
+    virtual void f() {}
 };
-struct C: virtual A {
-	virtual void f() {}
+struct C : virtual A {
+    virtual void f() {}
 };
-struct D: B, C  {
-	virtual void f() {}
+struct D : B, C {
+    virtual void f() {}
 };
 
 class String {
 public:
-	explicit String(char ){}
-	String(const char *){}
-private:
-	void operator=(const char*){}
-};
-int main_app() {
+    explicit String(char) {}
+    String(const char*) {}
 
-	cout << "v:" << sqrt(5.9) << endl;
-	cout << "m:" << sqrt(-4.5)<< endl;
+private:
+    void operator=(const char*) {}
+};
+int main_app()
+{
+
+    cout << "v:" << sqrt(5.9) << endl;
+    cout << "m:" << sqrt(-4.5) << endl;
 }
