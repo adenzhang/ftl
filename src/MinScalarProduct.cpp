@@ -1,5 +1,9 @@
-#include <algorithm>
+#define TEST_MODE
+#ifdef TEST_MODE
 #include <ftl/container_serialization.h>
+#endif
+
+#include <algorithm>
 #include <iostream>
 #include <queue>
 #include <set>
@@ -83,6 +87,17 @@ struct MinScalarProduct {
 
     void main()
     {
+#ifdef TEST_MODE
+        using namespace ftl;
+        auto redirectin = ftl::make_scoped_stream_redirect(std::cin, R"(2
+                                                                     3
+                                                                     1 3 -5
+                                                                     -2 4 1
+                                                                     5
+                                                                     1 2 3 4 5
+                                                                     1 0 1 0 1
+                                                                     )"_sl);
+#endif
         size_t ncase;
         cin >> ncase;
         for (size_t k = 0; k < ncase; ++k) {
@@ -96,27 +111,10 @@ struct MinScalarProduct {
             cout << "Case #" << k + 1 << ": " << solve(v1, v2) << endl;
         }
     }
-
-    void run_test()
-    {
-        stringstream ssIn;
-        ssIn << R"(2
-              3
-              1 3 -5
-              -2 4 1
-              5
-              1 2 3 4 5
-              1 0 1 0 1
-              )";
-        auto redirectin = ftl::make_scoped_stream_redirect(ssIn, std::cin);
-
-        main();
-    }
 };
 
 int main()
 {
     MinScalarProduct sln;
-    //    sln.main();
-    sln.run_test();
+    sln.main();
 }
