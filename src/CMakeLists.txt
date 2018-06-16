@@ -1,8 +1,8 @@
-project(leetcode)
+project(libftl)
 # cmake -G "Eclipse CDT4 - Unix Makefiles" -D_ECLIPSE_VERSION=4.2 -DCMAKE_BUILD_TYPE=Debug ../build
 cmake_minimum_required( VERSION 2.6 )
 
-set(PROJNAME leetcode)
+set(PROJNAME libftl)
 
 # check 64 bit
 if( CMAKE_SIZEOF_VOID_P EQUAL 8 )
@@ -61,20 +61,22 @@ if( NOT WIN32 )
         set(LIBS ${LIBS} -lrt -lpthread)
 endif()
 
-set(INCLUDES ${INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+#set(INCLUDES ${INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 message("- INCLUDES dirs: ${INCLUDES}")
 
 include_directories(${INCLUDES})
 
 file(GLOB SRC
-    "${CMAKE_CURRENT_SOURCE_DIR}/../src/*.h"
+#    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
 #    ${CMAKE_CURRENT_SOURCE_DIR}/../src/test_pooled_reactor.cpp
-    "${CMAKE_CURRENT_SOURCE_DIR}/../src/*.cpp"
+#    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 
-add_executable( ${PROJNAME} ${SRC} )
+add_library( ${PROJNAME} INTERFACE ${SRC} )
 
-target_link_libraries( ${PROJNAME} ${LIBS})
-
+target_include_directories(${PROJNAME} INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+#  $<INSTALL_INTERFACE:include/Eigen>
+)
 
