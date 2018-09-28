@@ -68,7 +68,7 @@ message("- INCLUDES dirs: ${INCLUDES}")
 include_directories(${INCLUDES})
 
 file(GLOB SRC
-#    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
 #    ${CMAKE_CURRENT_SOURCE_DIR}/../src/test_pooled_reactor.cpp
 #    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
