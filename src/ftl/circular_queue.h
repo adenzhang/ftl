@@ -2,47 +2,50 @@
 
 namespace ftl {
 
-
-template<typename T, size_t CapacityT, typename ObjectAlloc = std::allocator<T>>
-class circular_queue
-{
+template <typename T, typename ObjectAlloc = std::allocator<T>>
+class circular_queue {
 protected:
+    size_t mCapacity = 0;
     ObjectAlloc mAlloc;
-    T *mBuf = nullptr;
-    T *pFront = nullptr; // points to first available
-    T *pEnd = nullptr; // points to free memory block
+    T* mBuf = nullptr;
+    T* pFront = nullptr; // points to first available
+    T* pEnd = nullptr; // points to free memory block
     size_t mSize = 0;
-
-    circular_queue( const circular_queue & ) = delete;
-    circular_queue &operator=( const circular_queue & ) = delete;
 
 public:
     using this_type = circular_queue;
-    static const size_t capacity = CapacityT;
 
     //- iterator support
 
     using value_type = T;
-    using node_type = T *;
+    using node_type = T*;
 
     using iterator = gen_iterator<this_type, false>;
     using const_iterator = gen_iterator<this_type, true>;
 
-    bool is_end( const node_type &n ) const
+    bool is_end(const node_type& n) const
     {
         return !n;
     }
-    bool next( node_type &n ) const
+    bool next(node_type& n) const
     {
-        if ( !n )
+        if (!n)
             return false;
-        if ( ++n == mBuf + CapacityT )
-            n = mBuf;
-        if ( n == pEnd || n == pFront )
+        n = inc(n);
+        if (n == pEnd || n == pFront) // the end
             n = node_type();
         return true;
     }
-    value_type *get_value( const node_type &n ) const
+    bool prev(node_type& n) const
+    {
+        if (!n)
+            return false;
+        n = dec(n);
+        if (n == pEnd || n == pFront) // the end
+            n = node_type();
+        return true;
+    }
+    value_type* get_value(const node_type& n) const
     {
         return n;
     }
@@ -50,36 +53,60 @@ public:
     //--
     iterator begin()
     {
-        if ( empty() )
+        if (empty())
             return iterator();
-        return iterator( pFront, this );
+        return iterator(pFront, this);
     }
     iterator end()
     {
         return iterator();
     }
 
+    const_iterator begin() const
+    {
+        return cbegin();
+    }
+    const_iterator end() const
+    {
+        return const_iterator();
+    }
     const_iterator cbegin() const
     {
-        if ( empty() )
+        if (empty())
             return const_iterator();
-        return const_iterator( pFront, this );
+        return const_iterator(pFront, this);
     }
     const_iterator cend() const
     {
         return const_iterator();
     }
 
+    T& operator[](size_t i)
+    {
+        assert(i < mSize);
+        return *inc(pFront);
+    }
+    const T& operator[](size_t i) const
+    {
+        assert(i < mSize);
+        return *inc(pFront);
+    }
+
 public:
-    circular_queue( const ObjectAlloc &alloc = ObjectAlloc(), bool bDeferAllocate = false )
-        : mAlloc( alloc )
-        , mBuf( bDeferAllocate ? nullptr : mAlloc.allocate( CapacityT, nullptr ) )
-        , pFront( mBuf )
-        , pEnd( mBuf )
+    circular_queue(size_t cap = 0, const ObjectAlloc& alloc = ObjectAlloc())
+        : mCapacity(cap)
+        , mAlloc(alloc)
+        , mBuf(mCapacity ? mAlloc.allocate(mCapacity, nullptr) : nullptr)
+        , pFront(mBuf)
+        , pEnd(mBuf)
+        , mSize(0)
     {
+        if (mCapacity > 0 && !mBuf)
+            throw std::bad_alloc();
     }
-    circular_queue( circular_queue &&a )
-        : mAlloc( std::move( a.mAlloc ) )
+    circular_queue(circular_queue&& a)
+        : mCapacity(a.mCapacity)
+        , mAlloc(std::move(a.mAlloc))
     {
         mBuf = a.mBuf;
         pFront = a.pFront;
@@ -91,79 +118,145 @@ public:
         a.pEnd = nullptr;
         a.mSize = 0;
     }
-    circular_queue &operator=( circular_queue &&a )
+    // exactly clone
+    circular_queue(const circular_queue& a)
+        : mCapacity(a.mCapacity)
+        , mAlloc(a.mAlloc)
+        , mBuf(mCapacity ? nullptr : mAlloc.allocate(mCapacity, nullptr))
     {
-        mAlloc = std::move( a.mAlloc );
-        mBuf = a.mBuf;
-        pFront = a.pFront;
-        pEnd = a.pEnd;
+        pFront = mBuf + (a.pFront - a.mBuf);
+        pEnd = mBuf + (a.pEnd - a.mBuf);
         mSize = a.mSize;
-
-        a.mBuf = nullptr;
-        a.pFront = nullptr;
-        a.pEnd = nullptr;
-        a.mSize = 0;
+        for (auto p = pFront, q = a.pFront; q != a.pEnd; (p = inc(p)), (q = q.inc(q))) {
+            new (p) T(*q);
+        }
     }
-
-    T *allocate()
+    // copy contents, with mSize capacity
+    circular_queue& operator=(const circular_queue& a)
     {
-        assert( !mBuf );
-        mBuf = mAlloc.allocate( CapacityT, nullptr );
+        clear();
+        reserve(a.size());
+        mSize = a.size();
         pFront = mBuf;
-        pEnd = mBuf;
-        return reinterpret_cast<T *>( mBuf );
+        pEnd = mBuf + mSize;
+        for (auto p = pFront, q = a.pFront; q != a.pEnd; (p = inc(p)), (q = a.inc(q))) {
+            new (p) T(*q);
+        }
+        return *this;
+    }
+
+    circular_queue& operator=(circular_queue&& a)
+    {
+        ~circular_queue();
+        //        mAlloc = std::move(a.mAlloc);
+        mBuf = a.mBuf;
+        pFront = a.pFront;
+        pEnd = a.pEnd;
+        mSize = a.mSize;
+
+        a.mBuf = nullptr;
+        a.pFront = nullptr;
+        a.pEnd = nullptr;
+        a.mSize = 0;
     }
 
     ~circular_queue()
     {
         clear();
-        if ( mBuf )
-            mAlloc.deallocate( mBuf, CapacityT );
+        if (mBuf)
+            mAlloc.deallocate(mBuf, mCapacity);
         mBuf = nullptr;
-        //        mAlloc.deallocate( reinterpret_cast<T *>( pMem ), CapacityT );
     }
 
-    template<class... Args>
-    bool push_back( Args &&... args )
+    bool reserve(size_t cap)
     {
-        if ( full() )
+        if (cap <= mCapacity)
+            return true;
+        auto size = mSize;
+        auto newBuf = mAlloc.allocate(mCapacity, nullptr);
+        if (!newBuf)
             return false;
-        new ( static_cast<void *>( pEnd ) ) T( std::forward<Args>( args )... );
 
-        ++mSize;
-        ++pEnd;
-        if ( pEnd == mBuf + CapacityT )
-            pEnd = mBuf;
+        for (auto p = newBuf, q = pFront; q != pEnd; ++p, (q = inc(q))) {
+            new (p) T(*q);
+        }
+        ~circular_queue();
+        mCapacity = cap;
+        mBuf = newBuf;
+        pFront = mBuf;
+        pEnd = pFront + size;
+        mSize = size;
         return true;
     }
 
-    template<typename Iterator>
-    size_t insert( Iterator it, Iterator end )
+    template <class... Args>
+    bool emplace_back(Args&&... args)
+    {
+        if (full())
+            return false;
+        new (static_cast<void*>(pEnd)) T(std::forward<Args>(args)...);
+
+        ++mSize;
+        pEnd = inc(pEnd);
+        return true;
+    }
+    template <class... Args>
+    bool emplace_front(Args&&... args)
+    {
+        if (full())
+            return false;
+        pFront = dec(pFront);
+        new (static_cast<void*>(pFront)) T(std::forward<Args>(args)...);
+
+        ++mSize;
+        return true;
+    }
+    bool push_back(const T& v)
+    {
+        return emplace_back(v);
+    }
+    bool push_front(const T& v)
+    {
+        return emplace_front(v);
+    }
+    template <typename Iterator>
+    size_t insert(Iterator it, Iterator end)
     {
         size_t i = 0;
-        for ( ; it != end && push_back( *it ); ++i, ++it )
+        for (; it != end && push_back(*it); ++i, ++it)
             ;
         return i;
     }
 
     bool pop_front()
     {
-        if ( empty() )
+        if (empty())
             return false;
-        reinterpret_cast<T *>( pFront )->~T();
+        reinterpret_cast<T*>(pFront)->~T();
 
         --mSize;
-        ++pFront;
-        if ( pFront == mBuf + CapacityT )
-            pFront = mBuf;
+        pFront = inc(pFront);
         return true;
     }
 
-    T &front()
+    bool pop_back()
     {
-        return *reinterpret_cast<T *>( pFront );
-    }
+        if (empty())
+            return false;
+        pEnd = dec(pEnd);
+        reinterpret_cast<T*>(pEnd)->~T();
 
+        --mSize;
+        return true;
+    }
+    T& front()
+    {
+        return *reinterpret_cast<T*>(pFront);
+    }
+    T& back()
+    {
+        return *reinterpret_cast<T*>(dec(pEnd));
+    }
     bool empty() const
     {
         return mSize == 0;
@@ -171,16 +264,40 @@ public:
 
     bool full() const
     {
-        return mSize == CapacityT;
+        return mSize == mCapacity;
     }
     void clear()
     {
-        while ( !empty() )
+        while (!empty())
             pop_front();
     }
     size_t size() const
     {
         return mSize;
+    }
+
+public:
+    node_type inc(node_type p, size_t step = 1) const
+    {
+        p += step;
+        if (p >= mBuf + mCapacity)
+            p -= mCapacity;
+        return p;
+    }
+    node_type dec(node_type p, size_t step = 1) const
+    {
+        p -= step;
+        if (p < mBuf)
+            p += mCapacity;
+        return p;
+    }
+    T* allocate()
+    {
+        assert(!mBuf);
+        mBuf = mAlloc.allocate(mCapacity, nullptr);
+        pFront = mBuf;
+        pEnd = mBuf;
+        return reinterpret_cast<T*>(mBuf);
     }
 };
 }
