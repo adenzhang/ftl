@@ -3,7 +3,6 @@
 #include <vector>
 
 namespace ftl {
-
 template <class ContainerT, bool bIsRandomAccess = false, bool bContiguousMemory = false>
 struct iterable;
 
@@ -18,23 +17,19 @@ struct iterable_base {
     {
         return &static_cast<const Iter*>(this)->value();
     }
-
     auto& operator++()
     {
         static_cast<Iter*>(this)->next();
         return static_cast<Iter*>(this)->value();
     }
-
     auto operator++(int)
     {
         return static_cast<Iter*>(this)->next();
     }
-
     operator bool() const
     {
         return static_cast<const Iter*>(this)->has_next();
     }
-
     bool operator==(const Iter& a) const
     {
         return &static_cast<const Iter*>(this)->value() == &a.value();
@@ -135,33 +130,27 @@ struct iterable<ContainerT, true, false> : public iterable_base<iterable<Contain
     {
         return at(mCurr);
     }
-
     value_type& at(size_t i) const
     {
         return mC.at(i + mOffset);
     }
-
     size_t size() const
     {
         return mSize;
     }
-
     value_type& operator[](size_t i)
     {
         return mC[i];
     }
-
     iterable slice(size_t i = 0) const
     {
         return iterable(mC, i);
     }
-
     //---
     value_type& next()
     {
         return at(mCurr++);
     }
-
     bool has_next() const
     {
         return mCurr < mSize;
@@ -206,17 +195,14 @@ struct iterable<ContainerT, true, true> : public iterable_base<iterable<Containe
     {
         return at(mCurr);
     }
-
     value_type& at(size_t i) const
     {
         return mArr[i];
     }
-
     size_t size() const
     {
         return mSize;
     }
-
     value_type& operator[](size_t i)
     {
         return at(i);
@@ -226,13 +212,11 @@ struct iterable<ContainerT, true, true> : public iterable_base<iterable<Containe
     {
         return iterable(&at(i), mSize - i);
     }
-
     //---
     value_type& next()
     {
         return at(mCurr++);
     }
-
     bool has_next() const
     {
         return mCurr < mSize;
@@ -252,15 +236,12 @@ struct MakeIterable {
     template <class Args>
     struct is_contiguous : public std::false_type {
     };
-
     template <class... Args>
     struct is_contiguous<std::vector<Args...>> : public std::true_type {
     };
-
     template <class... Args>
     struct is_contiguous<std::array<Args...>> : public std::true_type {
     };
-
     template <class T>
     struct is_contiguous<T*> : public std::true_type {
     };
@@ -278,7 +259,6 @@ struct MakeIterable {
 
             static const bool value = ::std::is_same<decltype(Check<U>(0)), bool>::value;
         };
-
         // if T has member function value_type operator[](size_t)
         static constexpr auto value = IsRandamAccessible<decltype(*std::declval<C>().begin()), C>::value;
     };
@@ -330,7 +310,6 @@ struct MakeIterable {
         static constexpr bool is_ra = is_cont;
         return iterable<C, is_ra, is_cont>(it0, it1);
     }
-
     template <class C>
     auto operator()(const C&, decltype(std::declval<C>().begin()) it0, decltype(std::declval<C>().begin()) it1) const
     {
@@ -340,16 +319,13 @@ struct MakeIterable {
     }
 };
 
-static constexpr MakeIterable make_iterable;
+static const MakeIterable make_iterable;
 
-struct ForEachIterable
-{
-
+struct ForEachIterable {
     template <class ItSeq, class F>
     std::enable_if_t<!ItSeq::is_ra, void> operator()(ItSeq seq, F&& f) const
     {
-        while (seq.has_next())
-        {
+        while (seq.has_next()) {
             auto& e = seq.next();
             f(e);
         }
@@ -358,44 +334,38 @@ struct ForEachIterable
     template <class ItSeq, class F>
     std::enable_if_t<ItSeq::is_ra, void> operator()(ItSeq seq, F&& f) const
     {
-        for (size_t i = 0, N = seq.size(); i < N; ++i)
-        {
+        for (size_t i = 0, N = seq.size(); i < N; ++i) {
             auto& e = seq.at(i);
             f(e);
         }
     }
 };
 
-static constexpr ForEachIterable for_each_iterable;
+static const ForEachIterable for_each_iterable;
 
 //========== functional ==================
 
 template <class F, class A>
-
-auto
-bind_2nd(F&& f, A&& a)
+auto bind_2nd(F&& f, A&& a)
 {
-    return [f = std::forward<F>(f), second = std::forward<A>(a)](auto&& first)
-    {
+    return [f = std::forward<F>(f), second = std::forward<A>(a)](auto&& first) {
         return f(std::forward<decltype(first)>(first), second);
     };
 }
 
 template <class F, class A>
-auto
-bind_1st(F&& f, A&& a)
+auto bind_1st(F&& f, A&& a)
 {
-    return [f = std::forward<F>(f), first = std::forward<A>(a)](auto&& second)
-    {
+    return [f = std::forward<F>(f), first = std::forward<A>(a)](auto&& second) {
         return f(first, std::forward<decltype(second)>(second));
     };
 }
 
-struct void_var_t
-{
+enum class void_var_t {
+    VOID
 };
 
-static constexpr void_var_t void_var;
+static constexpr void_var_t void_var = void_var_t::VOID;
 
 template <class T, T v = T{}>
 struct const_func {
@@ -408,39 +378,100 @@ struct const_func {
     }
 };
 
+template <class T, T v = T{}>
+static constexpr auto const_func_v = const_func<T, v>();
+static constexpr auto void_func_v = const_func<void_var_t>();
+
 template <class T>
 auto make_const_func(const T& v)
 {
     return [=](auto...) { return v; };
 }
 
-template <class T, class F>
+#ifndef _PIPEOP_
+#define _PIPEOP_ %
+#endif
 
-std::enable_if_t<!std::is_same_v<T, void_var_t> && std::is_invocable_v<F, T>,
-    std::conditional_t<std::is_void_v<std::invoke_result_t<F, T>>, void_var_t, std::invoke_result_t<F, T>>>
-operator%(T&& arg, F&& f) // pipe operator
-{
-    if constexpr (std::is_void_v<std::invoke_result_t<F, T>>)
+namespace func_operator {
+    template <class T, class F>
+    std::enable_if_t<!std::is_same_v<T, void_var_t> && std::is_invocable_v<F, T>,
+        std::conditional_t<std::is_void_v<std::invoke_result_t<F, T>>, void_var_t, std::invoke_result_t<F, T>>>
+    operator _PIPEOP_(T&& arg,
+        F&& f) // pipe operator
     {
-        f(std::forward<T>(arg));
-        return void_var;
+        if constexpr (std::is_void_v<std::invoke_result_t<F, T>>) {
+            f(std::forward<T>(arg));
+            return void_var;
+        } else
+            return f(std::forward<T>(arg));
     }
-    else
-        return f(std::forward<T>(arg));
-}
-
-template <class T, class F>
-std::enable_if_t<std::is_same_v<T, void_var_t> && std::is_invocable_v<F>,
-    std::conditional_t<std::is_void_v<std::invoke_result_t<F>>, void_var_t, std::invoke_result_t<F>>>
-operator%(const T&, F&& f) // pipe operator
-
-{
-    if constexpr (std::is_void_v<std::invoke_result_t<F>>)
+    template <class T, class F>
+    std::enable_if_t<std::is_same_v<T, void_var_t> && std::is_invocable_v<F>,
+        std::conditional_t<std::is_void_v<std::invoke_result_t<F>>, void_var_t, std::invoke_result_t<F>>>
+    operator _PIPEOP_(const T&, F&& f) // pipe operator
     {
-        f();
-        return void_var;
+        if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
+            f();
+            return void_var;
+        } else
+            return f();
     }
-    else
-        return f();
+} // func_operator
+} // ftl
+/*
+TEST_CASE( "cpp_tests" )
+{
+    std::list<int> il{1, 2, 3};
+    std::vector<int> iv{1, 2, 3};
+    std::map<int, int> im{{2, 3}, {3, 4}};
+    const int arr[] = {
+            23,
+            234,
+    };
+
+    for_each_iterable( make_iterable( il, il.begin(), il.end() ), []( auto &e ) { std::cout << " el: " << e; } );
+    make_iterable( iv ).for_each( []( auto &e ) {
+        e += 3;
+        std::cout << " el: " << e;
+    } );
+
+    auto sum = make_iterable( iv ).reduce( std::plus<int>(), 0 );
+    std::cout << " sum: " << sum << std::endl;
+
+    il % make_iterable % bind_2nd( for_each_iterable, []( auto &e ) { std::cout << " il: " << e; } );
+
+    static_cast<const std::vector<int> &>( iv ) % make_iterable % bind_2nd( for_each_iterable, []( auto &e ) {
+        //        e += 3; unable to change const value
+        std::cout << " iv: " << e;
+    } );
+
+    static_cast<const std::map<int, int> &>( im ) % make_iterable %
+            bind_2nd( for_each_iterable, []( auto &e ) { std::cout << " im: {" << e.first << "->" << e.second << "}"; } );
+
+    arr % make_iterable % bind_2nd( for_each_iterable, []( auto &e ) { std::cout << " arr: " << e; } );
+
+    std::list<std::string>{"abc", "234", "23ws"} % make_iterable % bind_2nd( for_each_iterable, []( auto &e ) { std::cout << " arr: " << e; } );
+
+    3 % []( auto e ) {
+        e += 10;
+        std::cout << " el: " << e << std::endl;
+        return e;
+    } % []( auto e ) {
+        e += 100;
+        std::cout << " el: " << e << std::endl;
+        return e;
+    };
+
+    void_var %
+            []() {
+                std::cout << " starting " << std::endl;
+                return 4;
+            } %
+            make_const_func( 4 ) %
+            []( int y ) {
+                int x = y + 10;
+                std::cout << " processing " << x << std::endl;
+            } %
+            []( void ) { std::cout << " ending " << std::endl; };
 }
-} // namespace ftl
+*/

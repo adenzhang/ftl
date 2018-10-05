@@ -7,6 +7,8 @@
 using namespace ftl;
 TEST_CASE("iterable_tests")
 {
+    using namespace func_operator;
+
     std::list<int> il{ 1, 2, 3 };
     std::vector<int> iv{ 1, 2, 3 };
     std::map<int, int> im{ { 2, 3 }, { 3, 4 } };
