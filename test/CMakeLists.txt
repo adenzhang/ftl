@@ -75,6 +75,6 @@ file(GLOB SRC
 
 add_executable( ${PROJNAME} ${SRC} )
 
-target_link_libraries( ${PROJNAME} ${LIBS})
+target_link_libraries( ${PROJNAME} ${LIBS} try_catch)
 
 
