@@ -61,20 +61,20 @@ if( NOT WIN32 )
         set(LIBS ${LIBS} -lrt -lpthread)
 endif()
 
-set(INCLUDES ${INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/src)
+set(INCLUDES ${INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
 message("- INCLUDES dirs: ${INCLUDES}")
 
 include_directories(${INCLUDES})
 
 file(GLOB SRC
-    "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
+    ${CMAKE_CURRENT_SOURCE_DIR}/*.h
     ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
 #    "${CMAKE_CURRENT_SOURCE_DIR}/MinScalarProduct.cpp"
 )
 
 add_executable( ${PROJNAME} ${SRC} )
 
-target_link_libraries( ${PROJNAME} ${LIBS} libftl)
+target_link_libraries( ${PROJNAME} ${LIBS})
 
 

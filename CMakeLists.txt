@@ -22,58 +22,8 @@ else()
 endif()
 message("*** ${ARCH}/${BUILDTYPE} ***")
 
-# boost libraries
-#set (BOOST_LIBS system program_options)
-
-if( NOT Boost_DIR )
-    if( EXISTS $ENV{BOOST_DIR} )
-        set(Boost_DIR $ENV{BOOST_DIR})
-        #message("will use boost path in env $ENV{BOOST_DIR}")
-    else()
-        #message("not set boost path")
-    endif()
-endif()
-set(INCLUDES ${INCLUDES} ${Boost_DIR}/include)
-#set(LIBPATHS ${LIBPATHS} ${Boost_DIR}/lib)
-set(LIBPATHS ${LIBPATHS} ${Boost_DIR}/lib/${ARCH}/${BUILDTYPE})
-if( NOT WIN32 )
-        foreach(F ${BOOST_LIBS})
-                set(LIBS ${LIBS} boost_${F})
-        endforeach()
-endif()
-#find_library(Boost_LIBRARIES NAMES boost_system ${Boost_DIR}/lib/${ARCH}/${BUILDTYPE})
-#set(LIBS ${LIBS} ${Boost_DIR}/lib/${ARCH}/${BUILDTYPE}/boost_system)
-
-set(Boost_USE_STATIC_LIBS OFF)
-set(Boost_USE_MULTITHREADED ON)
-set(Boost_USE_STATIC_RUNTIME OFF)
-
-add_definitions( -DBOOST_ALL_DYN_LINK -std=c++17)
-
-LINK_DIRECTORIES(${LIBPATHS})
-
-message("- link libs: ${LIBS}")
-message("- link dirs: ${LIBPATHS}")
-
-#----------------------------------
-
-if( NOT WIN32 )
-        set(LIBS ${LIBS} -lrt -lpthread)
-endif()
-
-set(INCLUDES ${INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/src)
-
-message("- INCLUDES dirs: ${INCLUDES}")
-
-include_directories(${INCLUDES})
-
-file(GLOB SRC
-#    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
-#    ${CMAKE_CURRENT_SOURCE_DIR}/../src/test_pooled_reactor.cpp
-#    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
-)
 
 add_subdirectory(src)
 add_subdirectory(test)
 
-
+add_subdirectory(src/try_catch)

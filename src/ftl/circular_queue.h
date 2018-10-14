@@ -1,4 +1,7 @@
+#pragma pragma once
+#include <exception>
 #include <ftl/intrusive_list.h>
+#include <memory>
 
 namespace ftl {
 
