@@ -1,23 +1,27 @@
-#include "ftl/catch.hpp"
-#include <iostream>
+#include <ftl/catch_or_ignore.h>
 #include <ftl/shared_object_pool.h>
+#include <iostream>
 
 namespace {
 struct A {
     int id;
     int pad;
-    A(int id=0):id(id) {
+    A(int id = 0)
+        : id(id)
+    {
         std::cout << "A()" << id << std::endl;
     }
-    A(const A& a): id(a.id) {
+    A(const A& a)
+        : id(a.id)
+    {
         std::cout << "A(A)" << id << std::endl;
     }
-    ~A() {
+    ~A()
+    {
         std::cout << "~A()" << id << std::endl;
     }
 };
 typedef ::std::shared_ptr<A> APtr;
-
 }
 
 TEST_CASE("test_shared_object_pool", "")
@@ -26,42 +30,44 @@ TEST_CASE("test_shared_object_pool", "")
     typedef shared_object_pool<A> SharedAPool;
     using FixedAPool = fixed_shared_pool<A, 2>;
 
-    struct my    {
-        static APtr getObject() {
+    struct my {
+        static APtr getObject()
+        {
             auto pool = SharedAPool::create_me();
             static int count = 0;
             return pool->create_shared(++count);
         }
-        static APtr getObjectFromFixedPool() {
+        static APtr getObjectFromFixedPool()
+        {
             auto pool = FixedAPool::create_me();
             static int count = 0;
             return pool->create_shared(++count);
         }
     };
-//    SECTION("TestShared")
-//    {
-//        APtr a;
-//        {
-//            APtr b, c;
-//            a = my::getObject();
-//            cout << "Got A:" << a->id << endl;
-//            b = a;
-//            c = my::getObject();
-//            a = c;
-//        }
+    //    SECTION("TestShared")
+    //    {
+    //        APtr a;
+    //        {
+    //            APtr b, c;
+    //            a = my::getObject();
+    //            cout << "Got A:" << a->id << endl;
+    //            b = a;
+    //            c = my::getObject();
+    //            a = c;
+    //        }
 
-//    }
+    //    }
     SECTION("TestFixedShared")
     {
         APtr a;
         {
             APtr b, c;
             a = my::getObjectFromFixedPool();
-            b =  my::getObjectFromFixedPool();
-            c =  my::getObjectFromFixedPool();
-            REQUIRE ( APtr() != a );
-            REQUIRE ( APtr() != b );
-            REQUIRE (  c );
+            b = my::getObjectFromFixedPool();
+            c = my::getObjectFromFixedPool();
+            REQUIRE(APtr() != a);
+            REQUIRE(APtr() != b);
+            REQUIRE(c);
 
             std::cout << "Got A:" << a->id << std::endl;
             b = a;
@@ -75,8 +81,7 @@ TEST_CASE("test_shared_object_pool", "")
             b = pool->create_shared(++count);
             c = pool->create_shared(++count);
             REQUIRE(!!b);
-            REQUIRE( !c);
+            REQUIRE(!c);
         }
-
     }
 }

@@ -1,8 +1,6 @@
 
-#ifdef UNITTEST_MODE
 #define CATCH_CONFIG_MAIN
-#include "ftl/catch.hpp"
-#endif
+#include <ftl/catch_or_ignore.h>
 
 #include <algorithm>
 #include <bitset>
@@ -60,4 +58,5 @@ int main_app()
 
     cout << "v:" << sqrt(5.9) << endl;
     cout << "m:" << sqrt(-4.5) << endl;
+    return 0;
 }

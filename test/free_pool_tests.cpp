@@ -1,5 +1,5 @@
-#include "ftl/catch.hpp"
 #include "ftl/free_pool.h"
+#include <ftl/catch_or_ignore.h>
 
 #include <cassert>
 #include <chrono>
