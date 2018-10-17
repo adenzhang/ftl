@@ -1,38 +1,51 @@
+#include <cstdlib>
 #include <ftl/catch_or_ignore.h>
 #include <ftl/out_printer.h>
+#include <signal.h>
 #include <thread>
 #include <try_catch/try_catch.h>
 #include <unistd.h>
-
 using namespace ftl;
 
-void read_and_execute_command()
+int read_and_execute_command(size_t n, bool bcrash = false)
 {
-    outPrinter.println("will crach");
-    int* p = nullptr;
-    *p = 234;
+    if (bcrash) {
+        outPrinter.println("will crach");
+        int* p = nullptr;
+        *p = 234;
+
+    } else {
+        int x = 3;
+        return x + n;
+    }
 }
-void test_try()
+void test_try(size_t N, bool bcrash = false)
 {
-    for (int i = 0; i < 3; ++i) {
-        sleep(1);
-        outPrinter.println(i, " will setjmp errno:", errno);
-        FTL_TRY
+    auto tsStart = std::chrono::steady_clock::now();
+    for (int i = 0; i < N; ++i) {
+        //        sleep(1);
+        //        outPrinter.println(i, " will setjmp errno:", errno);
+        FTL_TRY1
         {
-            read_and_execute_command();
+            read_and_execute_command(i, bcrash);
         }
-        FTL_CATCH
+        FTL_CATCH1
         {
             outPrinter.println(" recovered from interuption!");
         }
-        FTL_TRY_END
+        FTL_TRY_END1
     }
+    auto tsStop = std::chrono::steady_clock::now();
+    std::cout << "- processing time(ns): " << (tsStop - tsStart).count() << ", latency(ns):" << (tsStop - tsStart).count() / N << std::endl;
 }
 TEST_FUNC(try_catch_tests)
 {
-    _install_try_catch();
-    std::thread th1(test_try);
-    std::thread th2(test_try);
+    FTL_TRY_INSTALL1();
+    size_t N = 10000000;
+    test_try(1, true);
+    test_try(1, false);
+    std::thread th1(test_try, N, false);
+    //    std::thread th2(test_try);
     th1.join();
-    th2.join();
+    //    th2.join();
 }

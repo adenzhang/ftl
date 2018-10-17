@@ -7,7 +7,7 @@
 #include <stdarg.h>
 
 /// comment/uncommnet FTL_TRY_ENABLE to disable/enable FTL_TRY system.
-//#define FTL_TRY_ENABLE
+#define FTL_TRY_ENABLE
 
 /////////////////////////////////////////////////////////////////////////
 /// users are supposed to use only the below macro
@@ -230,7 +230,7 @@ struct thread_try_points : public thread_try_points_base_t {
 DECL_get_global_try_points();
 
 EXPORT_API bool _is_try_catch_installed();
-EXPORT_API void _install_try_catch(bool bForce = false); // force reinstall only if bForce
+EXPORT_API void _install_try_catch(int array_or_stack_jmp = 0, bool bForce = false); // array_or_stack_jmp: 0, 1; force reinstall only if bForce
 EXPORT_API void _uninstall_try_catch();
 EXPORT_API void _print_stack_trace(IPrintf* fmt);
 EXPORT_API void _set_thread_stack_printer(IPrintf* fmt);
@@ -249,4 +249,43 @@ struct _AutoTryPointPop {
     }
 };
 
+/////////////////////////   stack jump /////////////////////////
+
+struct try_point_data {
+    IPrintf* data = nullptr;
+    jmp_buf jmpbuf;
+};
+
+EXPORT_API try_point_data& _get_thread_try_point();
+
+struct TryPointRestore {
+    try_point_data d;
+    TryPointRestore(const try_point_data& a)
+        : d(a)
+    {
+    }
+    ~TryPointRestore()
+    {
+        _get_thread_try_point() = d;
+    }
+};
+
+#define FTL_TRY1                                            \
+    do {                                                    \
+        try_point_data& _currtry = _get_thread_try_point(); \
+        TryPointRestore _autorestore(_currtry);             \
+        if (!sigsetjmp(_currtry.jmpbuf, 1)) {
+
+#define FTL_CATCH1 \
+    }              \
+    else           \
+    {
+
+#define FTL_TRY_END1 \
+    }                \
+    }                \
+    while (false)    \
+        ;
+
+#define FTL_TRY_INSTALL1() _install_try_catch(1)
 #endif

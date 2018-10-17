@@ -6,6 +6,18 @@
 
 // IMPL_get_global_try_points( MAX_TRY_DEPTH )
 
+try_point_data& _get_thread_try_point()
+{
+    static thread_local try_point_data s_data;
+    return s_data;
+}
+static void signal_handler1(int s, siginfo_t*, void*)
+{
+    auto& trypoint = _get_thread_try_point();
+    siglongjmp(trypoint.jmpbuf, 1);
+}
+
+////////////////////////////////////////////////
 thread_try_points_base_t&
 _get_thread_try_points()
 {
@@ -107,6 +119,7 @@ struct try_catch_installer {
             return nullptr;
         }
     }
+    using sig_handler_t = void (*)(int s, siginfo_t*, void*);
     static void signal_handler(int s, siginfo_t*, void*)
     {
         auto tid = pthread_self();
@@ -136,7 +149,7 @@ struct try_catch_installer {
         if (pPrintf)
             pPrintf->printf("\nExiting signal_handler\n");
     }
-    static void install()
+    static void install(int array_or_stack_jmp)
     {
         auto pPrintf = *_get_thread_printf();
         if (pPrintf)
@@ -148,7 +161,7 @@ struct try_catch_installer {
 #if defined(__clang__)
 #pragma GCC diagnostic ignored "-Wdisabled-macro-expansion"
 #endif
-        act.sa_sigaction = &signal_handler;
+        act.sa_sigaction = array_or_stack_jmp == 0 ? &signal_handler : &signal_handler1;
 
         for (int signum : s_supported_signals) {
             if (sigaction(signum, &act, &s_saved_sigactions[signum])) {
@@ -172,17 +185,17 @@ struct try_catch_installer {
         set_installed(false);
     }
 
-    try_catch_installer()
+    try_catch_installer(int array_or_stack_jmp)
     {
-        install();
+        install(array_or_stack_jmp);
     }
 };
-void _install_try_catch(bool bForce)
+void _install_try_catch(int array_or_stack_jmp, bool bForce)
 {
 
-    static try_catch_installer s_install;
+    static try_catch_installer s_install(array_or_stack_jmp);
     if (bForce)
-        try_catch_installer::install();
+        try_catch_installer::install(array_or_stack_jmp);
     return;
 }
 void _uninstall_try_catch()
