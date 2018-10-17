@@ -17,20 +17,20 @@ void test_try()
     for (int i = 0; i < 3; ++i) {
         sleep(1);
         outPrinter.println(i, " will setjmp errno:", errno);
-        TRY_
+        FTL_TRY
         {
             read_and_execute_command();
         }
-        CATCH_
+        FTL_CATCH
         {
             outPrinter.println(" recovered from interuption!");
         }
-        TRY_END
+        FTL_TRY_END
     }
 }
 TEST_FUNC(try_catch_tests)
 {
-    install_signal_catcher();
+    _install_try_catch();
     std::thread th1(test_try);
     std::thread th2(test_try);
     th1.join();

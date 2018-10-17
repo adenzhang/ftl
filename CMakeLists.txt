@@ -1,8 +1,6 @@
-project(ftl)
+
 # cmake -G "Eclipse CDT4 - Unix Makefiles" -D_ECLIPSE_VERSION=4.2 -DCMAKE_BUILD_TYPE=Debug ../build
 cmake_minimum_required( VERSION 2.6 )
-
-set(PROJNAME ftl)
 
 # check 64 bit
 if( CMAKE_SIZEOF_VOID_P EQUAL 8 )
@@ -23,7 +21,10 @@ endif()
 message("*** ${ARCH}/${BUILDTYPE} ***")
 
 
+
+####################### test ###################
+
 add_subdirectory(src)
 add_subdirectory(test)
 
-add_subdirectory(src/try_catch)
+#add_subdirectory(src/try_catch)

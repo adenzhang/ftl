@@ -61,7 +61,7 @@ if( NOT WIN32 )
         set(LIBS ${LIBS} -lrt -lpthread)
 endif()
 
-set(INCLUDES ${INCLUDES} ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+set(INCLUDES ${INCLUDES} )
 
 message("- INCLUDES dirs: ${INCLUDES}")
 
@@ -75,6 +75,6 @@ file(GLOB SRC
 
 add_executable( ${PROJNAME} ${SRC} )
 
-target_link_libraries( ${PROJNAME} ${LIBS} try_catch)
+target_link_libraries( ${PROJNAME} ${LIBS} ftl try_catch)
 
 

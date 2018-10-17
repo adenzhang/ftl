@@ -1,7 +1,7 @@
+cmake_minimum_required( VERSION 2.6 )
+
 set(PROJNAME try_catch)
 project(try_catch)
-# cmake -G "Eclipse CDT4 - Unix Makefiles" -D_ECLIPSE_VERSION=4.2 -DCMAKE_BUILD_TYPE=Debug ../build
-cmake_minimum_required( VERSION 2.6 )
 
 add_definitions( -std=c++17)
 
