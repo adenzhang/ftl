@@ -1,0 +1,36 @@
+#pragma once
+
+#include <ftl/catch_or_ignore.h>
+
+#include <algorithm>
+#include <bitset>
+#include <cassert>
+#include <charconv>
+#include <chrono>
+#include <climits>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+#include <deque>
+#include <fstream>
+#include <ftl/binary_tree.h>
+#include <ftl/container_serialization.h>
+#include <ftl/indexed_tree.h>
+#include <iostream>
+#include <iterator>
+#include <limits>
+#include <list>
+#include <map>
+#include <numeric>
+#include <queue>
+#include <set>
+#include <sstream>
+#include <stack>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <variant>
+#include <vector>

@@ -83,6 +83,13 @@ public:                                        \
 
 namespace ftl {
 
+template <class... Ts>
+struct overload : Ts... {
+    using Ts::operator()...;
+};
+template <class... Ts>
+overload(Ts...)->overload<Ts...>;
+
 //== MemberGetter
 template <class ObjT, class T>
 struct MemberGetter_Var {
