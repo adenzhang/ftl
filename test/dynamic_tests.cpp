@@ -25,6 +25,9 @@ struct object_read {
     }
 };
 }
+
+//FTL_CHECK_EXPR2(variant_has_type, std::get<T2>(std::declval<T1>()));
+
 TEST_FUNC(dynamic_tests)
 {
     using namespace schema;
@@ -32,6 +35,10 @@ TEST_FUNC(dynamic_tests)
     auto m = make_dynamic<DynType, DynMap>();
     auto a = make_dynamic<DynType, DynArray>();
 
+    static constexpr size_t has_string = variant_accepted_index<std::string, DynType>::value;
+    static constexpr size_t has_int = variant_accepted_index<int, DynType>::value;
+
+    size_t npos = variant_npos;
     add_dynamic_map<std::string>(m, "n1", "abd");
     add_dynamic_array<std::string>(a, "abd");
 

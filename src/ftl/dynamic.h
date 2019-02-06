@@ -39,14 +39,15 @@ dynamic_ptr<K, E, Args...> make_dynamic_ptr(dynamic_var<K, E, Args...>&& v)
     return std::make_unique<dynamic_wrapper<K, E, Args...>>(std::move(v));
 }
 
-//template <class D, class T>
-//D make_dynamic()
-//{
-//    return D(std::in_place_type_t<T>());
-//}
+// map or array
+template <class D, class T, class... A>
+std::enable_if_t<variant_accepted_index<T, D>::value == 1 || variant_accepted_index<T, D>::value == 0, D> make_dynamic()
+{
+    return D(std::in_place_type_t<std::remove_cv_t<std::remove_reference_t<T>>>());
+}
 
 template <class D, class T, class... A>
-D make_dynamic(A&&... a)
+std::enable_if_t<variant_accepted_index<T, D>::value != 1 || variant_accepted_index<T, D>::value != 0 || variant_accepted_index<T, D>::value != std::variant_npos, D> make_dynamic(A&&... a)
 {
     return D(std::in_place_type_t<std::remove_cv_t<std::remove_reference_t<T>>>(), std::forward<A>(a)...);
 }

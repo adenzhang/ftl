@@ -95,32 +95,36 @@ namespace serialization {
     {
         return os << '\"' << s << '\"';
     }
-    template <typename List>
-    std::ostream& printList(std::ostream& os, const List& v)
+    template <typename Iter>
+    std::ostream& printIterator(std::ostream& os, Iter itBegin, Iter itEnd, const char sep = ',', const char* brackets = "[]")
     {
-        os << "[";
-        for (typename List::const_iterator it2 = v.begin(); it2 != v.end(); ++it2) {
-            if (it2 == v.begin()) {
-                os << *it2;
+        if (brackets && brackets[0])
+            os << brackets[0];
+        for (auto it = itBegin; it != itEnd; ++it) {
+            if (it == itBegin) {
+                os << *it;
             } else {
-                os << "," << *it2;
+                os << sep << *it;
             }
         }
-        os << "]";
+        if (brackets && brackets[1])
+            os << brackets[1];
         return os;
     }
     template <typename Map>
-    std::ostream& printMap(std::ostream& os, const Map& v)
+    std::ostream& printMap(std::ostream& os, const Map& v, const char sep = ',', const char kvsep = ':', const char* brackets = "{}")
     {
-        os << "{";
+        if (brackets && brackets[0])
+            os << brackets[0];
         for (typename Map::const_iterator it2 = v.begin(); it2 != v.end(); ++it2) {
             if (it2 == v.begin()) {
-                os << it2->first << ":" << it2->second;
+                os << it2->first << kvsep << it2->second;
             } else {
-                os << "," << it2->first << ":" << it2->second;
+                os << sep << it2->first << kvsep << it2->second;
             }
         }
-        os << "}";
+        if (brackets && brackets[0])
+            os << brackets[0];
         return os;
     }
     template <typename Key, typename Value>
@@ -136,17 +140,17 @@ namespace serialization {
     template <typename Elm>
     std::ostream& operator<<(std::ostream& os, const std::vector<Elm>& v)
     {
-        return printList(os, v);
+        return printIterator(os, v.begin(), v.end());
     }
     template <typename Elm>
     std::ostream& operator<<(std::ostream& os, const std::list<Elm>& v)
     {
-        return printList(os, v);
+        return printIterator(os, v.begin(), v.end());
     }
     template <typename Elm>
     std::ostream& operator<<(std::ostream& os, const std::set<Elm>& v)
     {
-        return printList(os, v);
+        return printIterator(os, v.begin(), v.end());
     }
 
     //=========== read ============================
@@ -178,34 +182,56 @@ namespace serialization {
         }
         return is;
     }
-    template <typename List>
-    std::istream& readList(std::istream& is, List& alist)
+    // return number of elements; -1 for error
+    template <typename Iter>
+    int readiterator(std::istream& is, Iter it, char sep = ',', const char* quotes = "[]")
     {
+        enum TOK { BRACKET0,
+            BRACKET1,
+            ELEM,
+            SEP };
         skipSpace(is);
-        if ('[' != is.peek()) {
-            std::cerr << "error reading list: expected starting '['" << std::endl;
-            return is; //error
+        if (quotes && quotes[0]) {
+            if (quotes[0] != is.peek()) {
+                std::cerr << "error reading list: expected starting '['" << std::endl;
+                return -1; //error
+            }
         }
-        is.ignore();
+        TOK expect = ELEM;
+        int n = 0;
         while (is) {
             skipSpace(is);
             int x = is.peek();
-            if (']' == x) {
+            if ((quotes && quotes[1]) && quotes[1] == x) {
                 is.ignore();
-                return is;
-            } else if (',' == x) {
-                is.ignore();
-            } else if (EOF == x) {
-                std::cerr << "error reading list: expected ending ']'" << std::endl;
-                return is; // error
-            } else {
-                typename List::value_type e;
+                return n;
+            }
+            switch (expect) {
+            case ELEM: {
+                skipSpace(is);
+                typename Iter::container_type::value_type e;
                 is >> e;
-                alist.push_back(e);
+                it = std::move(e);
+                ++n;
+                expect = SEP;
+                break;
+            }
+            case SEP: {
+                if (!isspace(sep) && sep != x)
+                    return -2;
+                expect = ELEM;
+                break;
+            }
+            default: {
+                return -4;
+            }
             }
         }
-        std::cerr << "error reading list: expected ending ']'" << std::endl;
-        return is; //error
+        if (quotes && quotes[1]) {
+            std::cerr << "error reading list: expected ending " << quotes[1] << std::endl;
+            return -3;
+        }
+        return n;
     }
     template <typename Map>
     std::istream& readMap(std::istream& is, Map& amap)
@@ -255,17 +281,20 @@ namespace serialization {
     template <typename Elm>
     std::istream& operator>>(std::istream& os, std::vector<Elm>& v)
     {
-        return readList(os, v);
+        readiterator(os, std::back_inserter(v));
+        return os;
     }
     template <typename Elm>
     std::istream& operator>>(std::istream& os, std::list<Elm>& v)
     {
-        return readList(os, v);
+        readiterator(os, std::back_inserter(v));
+        return os;
     }
     template <typename Elm>
     std::istream& operator>>(std::istream& os, std::set<Elm>& v)
     {
-        return readList(os, v);
+        readiterator(os, std::inserter(v));
+        return os;
     }
 }
 }
