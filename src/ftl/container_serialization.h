@@ -183,17 +183,29 @@ namespace serialization {
         return is;
     }
     // return number of elements; -1 for error
+    // quotes : format "[]"; default "[]" or "{}"
     template <typename Iter>
-    int readiterator(std::istream& is, Iter it, char sep = ',', const char* quotes = "[]")
+    int readiterator(std::istream& is, Iter it, char sep = ',', const char* quotes = nullptr)
     {
         enum TOK { BRACKET0,
             BRACKET1,
             ELEM,
             SEP };
         skipSpace(is);
+        char foundQuote = 0;
         if (quotes && quotes[0]) {
-            if (quotes[0] != is.peek()) {
-                std::cerr << "error reading list: expected starting '['" << std::endl;
+            char c = is.get();
+            if (quotes[0] != c) {
+                std::cerr << "error reading list: expected starting '[' not " << c << std::endl;
+                return -1; //error
+            }
+        } else if (!quotes) { // match [ or { or non
+            char c = is.get();
+            if (c == '{' || c == '{') {
+                is.ignore();
+                foundQuote = c == '{' ? '}' : ']';
+            } else {
+                std::cerr << "error reading list: expected default starting '[' or '{' not " << c << std::endl;
                 return -1; //error
             }
         }
@@ -203,6 +215,10 @@ namespace serialization {
             skipSpace(is);
             int x = is.peek();
             if ((quotes && quotes[1]) && quotes[1] == x) {
+                is.ignore();
+                return n;
+            }
+            if (!quotes && foundQuote == x) {
                 is.ignore();
                 return n;
             }
@@ -219,6 +235,8 @@ namespace serialization {
             case SEP: {
                 if (!isspace(sep) && sep != x)
                     return -2;
+                if (!isspace(sep))
+                    is.ignore();
                 expect = ELEM;
                 break;
             }
@@ -231,22 +249,27 @@ namespace serialization {
             std::cerr << "error reading list: expected ending " << quotes[1] << std::endl;
             return -3;
         }
+        if (!quotes) {
+            std::cerr << "error reading list: expected ending " << foundQuote << std::endl;
+            return -3;
+        }
         return n;
     }
     template <typename Map>
-    std::istream& readMap(std::istream& is, Map& amap)
+    std::istream& readMap(std::istream& is, Map& amap, const char kvsep = ':', char sep = ',', const char* quotes = "{}")
     {
+        // todo: complete/bugfix
         skipSpace(is);
-        if ('{' != is.peek())
+        if (quotes[0] != is.peek())
             return is; // error
         is.ignore();
         while (is) {
             skipSpace(is);
             int x = is.peek();
-            if ('}' == x) {
+            if (quotes[1] == x) {
                 is.ignore();
                 return is;
-            } else if (',' == x) {
+            } else if (sep == x) {
                 is.ignore();
             } else if (EOF == x) {
                 std::cerr << "error reading list: expected ending '}'" << std::endl;

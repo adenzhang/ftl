@@ -16,8 +16,10 @@
 #include <deque>
 #include <fstream>
 #include <ftl/binary_tree.h>
+#include <ftl/circular_queue.h>
 #include <ftl/container_serialization.h>
 #include <ftl/indexed_tree.h>
+#include <ftl/out_printer.h>
 #include <iostream>
 #include <iterator>
 #include <limits>
