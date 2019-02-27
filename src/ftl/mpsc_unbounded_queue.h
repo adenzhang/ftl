@@ -128,12 +128,17 @@ public:
         }
         return nullptr;
     }
-    void pop()
+    // buf: uninitialized memory
+    bool pop(T* buf = nullptr)
     {
         if (auto pNode = static_cast<Node*>(mQue.pop())) {
+            if (buf)
+                new (buf) T(std::move(pNode->val));
             pNode->val.~T();
             mAlloc.deallocate(pNode);
+            return true;
         }
+        return false;
     }
 };
 }

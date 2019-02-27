@@ -89,17 +89,20 @@ public:
             return nullptr;
         return &mBuf[poppos];
     }
-    T* pop()
+    // v: uninitialized memory
+    bool pop(T* buf = nullptr)
     {
         if (!mCap)
-            return nullptr;
+            return false;
         auto pushpos = mPushPos.load(std::memory_order_acquire) % mCap;
         auto poppos = mPopPos.load(std::memory_order_relaxed) % mCap;
         if (pushpos == poppos)
-            return nullptr;
-        auto res = &mBuf[poppos];
+            return false;
+        if (buf)
+            new (buf) T(std::move(mBuf[poppos]));
+        mBuf[poppos].~T();
         mPopPos.fetch_add(1, std::memory_order_acq_rel);
-        return res;
+        return true;
     }
 };
 }

@@ -19,17 +19,18 @@ public:
 
         seq_type& seq()
         {
-            return *reinterpret_cast<seq_type*>(mSeq);
+            return *reinterpret_cast<seq_type*>(&mSeq);
         }
         T& data()
         {
-            return *reinterpret_cast<T*>(mData);
+            return *reinterpret_cast<T*>(&mData);
         }
     };
-    using allocator = typename std::allocator_traits<Alloc>::template rebind_alloc<Entry>;
+    using allocator_type = Alloc;
+    using node_allocator = typename std::allocator_traits<Alloc>::template rebind_alloc<Entry>;
 
 protected:
-    allocator mAlloc;
+    node_allocator mAlloc;
     size_t mCap = 0;
     Entry* mBuf = nullptr;
 
@@ -38,7 +39,7 @@ protected:
 public:
     using value_type = T;
 
-    MPSCBoundedQueue(size_t cap, allocator&& alloc = Alloc())
+    MPSCBoundedQueue(size_t cap, allocator_type&& alloc = allocator_type())
         : mAlloc(alloc)
         , mCap(cap)
     {
@@ -52,7 +53,13 @@ public:
     }
     ~MPSCBoundedQueue()
     {
-        // destructing non-empty queue
+
+        if (mBuf) {
+            while (top())
+                pop();
+            mAlloc.deallocate(mBuf, mCap);
+            mBuf = nullptr;
+        }
     }
     MPSCBoundedQueue(const MPSCBoundedQueue&) = delete;
     MPSCBoundedQueue& operator=(const MPSCBoundedQueue&) = delete;
@@ -78,7 +85,8 @@ public:
         }
     }
 
-    void pop()
+    // buf: uninitialized memory
+    bool pop(T* buf = nullptr)
     {
         auto poppos = mPopPos.load(std::memory_order_acquire);
         auto& entry = mBuf[poppos % mCap];
@@ -87,10 +95,14 @@ public:
 
         if (diff == 0) {
             mPopPos.store(poppos + 1, std::memory_order_relaxed);
+            if (buf)
+                new (buf) T(std::move(entry.data()));
             entry.data().~T();
             entry.seq().store(seq - 1 + mCap); // dec seq and plus mCap. when next push, seq == pushpos.
+            return true;
         } else { // empty
             assert(diff < 0);
+            return false;
         }
     }
     T* top()

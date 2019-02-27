@@ -36,7 +36,7 @@ public:
             std::stringstream ss;
             ss << "Sender" << i;
             senders.push_back(&(reactors->template RegisterHandler<EventType>(
-                                            [&, i](const EventType& e) {
+                                            [&, i](EventType&& e) {
                                                 std::stringstream ss;
                                                 ss << i << " processing event: " << e;
                                                 size_t t = std::rand() % 20;
