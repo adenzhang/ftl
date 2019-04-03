@@ -1,9 +1,11 @@
 #pragma once
+#include <cstring>
 #include <functional>
 #include <variant>
 
-////============ FTL_CHECK_EXPR ================
-
+////============================================
+////              FTL_CHECK_EXPR
+////============================================
 // write an expression in terms of type 'T' to create a trait which is true for a type which is valid within the expression
 #define FTL_CHECK_EXPR(traitsName, ...)                                               \
     template <typename U = void>                                                      \
@@ -55,9 +57,10 @@
 
 #define FTL_HAS_MEMBER_TYPE(member, name) FTL_CHECK_EXPR_TYPE(name, ::std::declval<T>().member)
 
-////============================
+////=======================================================
+////              object attribute definition macros
+////=======================================================
 
-//=========== object attribute definition macros
 #define DEF_ATTRI_GETTER(name, member) \
 public:                                \
     const auto& get_##name() const     \
@@ -105,7 +108,9 @@ struct overload : Ts... {
 template <class... Ts>
 overload(Ts...)->overload<Ts...>;
 
-//================= tuple helpers ========================
+////=======================================================
+////              tuple helpers
+////=======================================================
 template <typename T, typename Tuple>
 struct tuple_has_type;
 
@@ -113,7 +118,9 @@ template <typename T, typename... Us>
 struct tuple_has_type<T, std::tuple<Us...>> : std::disjunction<std::is_same<T, Us>...> {
 };
 
-//=================== variant helpers ===================
+////=======================================================
+////              variant helpers
+////=======================================================
 
 template <typename _Tp, typename _Variant, typename = void>
 struct variant_accepted_index {
@@ -133,7 +140,11 @@ template <class T, class V>
 struct variant_has_type {
     static constexpr bool value = variant_accepted_index<T, V>::value != std::variant_npos;
 };
-//== MemberGetter
+
+////=======================================================
+////              MemberGetter
+////=======================================================
+
 template <class ObjT, class T>
 struct MemberGetter_Var {
     T ObjT::*pMember;
@@ -270,4 +281,54 @@ struct Member {
         return setter(obj, v);
     }
 };
+
+//=============================================
+//   GetClassName
+//=============================================
+namespace internal {
+
+    template <typename T>
+    struct GetTypeNameHelper {
+        static constexpr const unsigned int BACK_SIZE = sizeof("]") - 1u;
+
+        static const char* GetTypeNameRaw(void)
+        {
+            constexpr unsigned int FRONT_SIZE = sizeof("static const char* internal::GetTypeNameHelper<T>::GetTypeNameRaw() [with T = ") - 1u;
+            auto pName = __PRETTY_FUNCTION__;
+            return pName + FRONT_SIZE;
+        }
+
+        static const char* GetTypeName(char* buf, int* len)
+        {
+            constexpr unsigned int FRONT_SIZE = sizeof("static const char* internal::GetTypeNameHelper<T>::GetTypeName(char*, int*) [with T = ") - 1u;
+            const char* pName = __PRETTY_FUNCTION__ + FRONT_SIZE;
+            int Len = int(strlen(pName) - BACK_SIZE);
+            if (len) {
+                Len = std::min(Len, *len);
+                *len = Len;
+            }
+
+            memcpy(buf, pName, Len);
+            buf[Len] = 0;
+            return buf;
+        }
+    };
+}
+
+// len [in]: buf capacity
+//     [out]: strlen populated
+template <typename T>
+const char*
+GetTypeName(char* buf, int* len = nullptr)
+{
+    return internal::GetTypeNameHelper<T>::GetTypeName(buf, len);
+}
+
+template <typename T>
+std::string
+GetTypeNameString(void)
+{
+    auto s = internal::GetTypeNameHelper<T>::GetTypeNameRaw();
+    return std::string(s, strlen(s) - internal::GetTypeNameHelper<T>::BACK_SIZE);
+}
 }
