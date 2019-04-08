@@ -201,8 +201,7 @@ namespace serialization {
             }
         } else if (!quotes) { // match [ or { or non
             char c = is.get();
-            if (c == '{' || c == '{') {
-                is.ignore();
+            if (c == '{' || c == '[') {
                 foundQuote = c == '{' ? '}' : ']';
             } else {
                 std::cerr << "error reading list: expected default starting '[' or '{' not " << c << std::endl;
