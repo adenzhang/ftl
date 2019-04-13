@@ -33,29 +33,35 @@
 #include "concurrent_queue_adapter.h"
 
 //#define _REACTOR_DBG
-namespace ftl {
-namespace reactor {
+namespace ftl
+{
+namespace reactor
+{
 
-    struct IEventSenderBase {
+    struct IEventSenderBase
+    {
         // if not async, block untill all pending events being processed
         // return true if successfully stopped
-        virtual bool Stop(bool async = false) = 0;
+        virtual bool Stop( bool async = false ) = 0;
 
-        virtual ~IEventSenderBase() {}
+        virtual ~IEventSenderBase()
+        {
+        }
     };
 
-    template <class EventT>
-    using EventHandlerFunc = std::function<void(EventT&&)>; // todo: inline size
+    template<class EventT>
+    using EventHandlerFunc = std::function<void( EventT && )>; // todo: inline size
 
     using ThreadTask = std::function<void()>; // todo: inline size
 
-    template <typename EventType>
-    struct IEventSender : public IEventSenderBase {
+    template<typename EventType>
+    struct IEventSender : public IEventSenderBase
+    {
         using Handler = EventHandlerFunc<EventType>;
 
         // block until putting event to queue
         // return false if failure, eg. it's already stopped. Do NOT retry when it fails.
-        virtual bool Send(EventType&&) = 0;
+        virtual bool Send( EventType && ) = 0;
 
         // todo
         // filter when Send(). if ! filter(), Send() will return false and event will not be put in queue.
@@ -64,14 +70,16 @@ namespace reactor {
         // return approximate number of pending events
         virtual size_t CountEvents() const = 0;
 
-        virtual ~IEventSender() {}
+        virtual ~IEventSender()
+        {
+        }
 
-        virtual IEventSender<EventType>& SetName(const char* name)
+        virtual IEventSender<EventType> &SetName( const char *name )
         {
             this->name = name;
             return *this;
         }
-        virtual const char* GetName() const
+        virtual const char *GetName() const
         {
             return name.c_str();
         }
@@ -80,12 +88,13 @@ namespace reactor {
         std::string name;
     };
 
-    struct IReactorsBase {
+    struct IReactorsBase
+    {
         // @numThreads: ignored for SeparatedReactors.
         // @tasksCapacity: For PooledReactors, max number of pending tasks, approximately the sum of all handlers' pending events.
         //                For GroupedReactors, tasks capacity of a thread/group.
         //                Ignored for SeparatedReactors
-        virtual bool Init(size_t numThreads, size_t tasksCapacity) = 0;
+        virtual bool Init( size_t numThreads, size_t tasksCapacity ) = 0;
 
         // block until all handlers are removed and threads are closed
         virtual void Term() = 0;
@@ -97,12 +106,16 @@ namespace reactor {
         //    virtual IEventSender<EventType>* RegisterHandler( const EventHandlerFunc<EventType>& handler, size_t eventsCapacity ) = 0;
 
         // IEventSender will be deleted when handler is removed.
-        virtual void RemoveHandler(IEventSenderBase*) = 0;
+        virtual void RemoveHandler( IEventSenderBase * ) = 0;
 
         // Used only by PooledReactor ot push a thread task.
-        virtual void TryPush(const ThreadTask&) {}
+        virtual void TryPush( const ThreadTask & )
+        {
+        }
 
-        virtual ~IReactorsBase() {}
+        virtual ~IReactorsBase()
+        {
+        }
     };
     using ReactorsBasePtr = std::shared_ptr<IReactorsBase>;
 
@@ -111,8 +124,9 @@ namespace reactor {
     ///
     /// all senders share the ownership of PooledReactors.
 
-    template <typename EventType>
-    class PooledEventSender : public IEventSender<EventType> {
+    template<typename EventType>
+    class PooledEventSender : public IEventSender<EventType>
+    {
     public:
         class PooledReactors;
         friend class PooledReactors;
@@ -133,71 +147,69 @@ namespace reactor {
 
     public:
         // should not be called directly, use PooledEventDispatcher::RegisterHandler() to create it.
-        PooledEventSender(ReactorsBasePtr d, const typename IEventSender<EventType>::Handler& h, size_t siz)
-            : dispatcher(d)
-            , handler(h)
-            , events(siz)
-            , stopping(false)
-            , currToken(0)
-            , processedTasks(0)
-            , pendingTasks(0)
+        PooledEventSender( ReactorsBasePtr d, const typename IEventSender<EventType>::Handler &h, size_t siz )
+            : dispatcher( d ), handler( h ), events( siz ), stopping( false ), currToken( 0 ), processedTasks( 0 ), pendingTasks( 0 )
         {
         }
 
-        template <typename... Args>
-        bool Send(Args... e)
+        template<typename... Args>
+        bool Send( Args... e )
         {
-            return Send(EventType(e...));
+            return Send( EventType( e... ) );
         }
 
-        bool Send(EventType&& e) override
+        bool Send( EventType &&e ) override
         {
-            if (stopping)
+            if ( stopping )
                 return false;
             std::stringstream ss;
 #ifdef QUEUE_TBB
-            try {
-                events.push(e);
-            } catch (tbb::user_abort&) {
+            try
+            {
+                events.push( e );
+            }
+            catch ( tbb::user_abort & )
+            {
                 return false;
             }
 
 #else
-            while (!events.try_push(e, 1000000)) {
+            while ( !events.try_push( e, 1000000 ) )
+            {
 #ifdef _REACTOR_DBG
                 ss << name << " failed to push event " << e;
                 std::cout << ss.str() << std::endl;
-                ss.str("");
+                ss.str( "" );
 #endif
             }
 #endif
 #ifdef _REACTOR_DBG
             ss << name << " pushed event " << e;
             std::cout << ss.str() << std::endl;
-            ss.str("");
+            ss.str( "" );
 #endif
 
             auto token = ++currToken;
             ++pendingTasks;
-            dispatcher->TryPush([this, token]() {
-                Process(token);
-            });
+            dispatcher->TryPush( [this, token]() { Process( token ); } );
 
             return true;
         }
 
-        bool Stop(bool async = false) override
+        bool Stop( bool async = false ) override
         {
             stopping = true;
 #ifdef QUEUE_TBB
             events.abort();
 #endif
-            while (true) {
-                if (stopping && events.empty() && processedTasks == pendingTasks && working.try_lock()) {
+            while ( true )
+            {
+                if ( stopping && events.empty() && processedTasks == pendingTasks && working.try_lock() )
+                {
                     working.unlock();
                     return true; // stopped
                 }
-                if (async)
+                if ( async )
                     return false;
             }
         }
@@ -208,32 +220,38 @@ namespace reactor {
         }
 
     protected:
-        void Process(size_t token)
+        void Process( size_t token )
         {
             std::stringstream ss;
-            if (events.empty()) {
+            if ( events.empty() )
+            {
 #ifdef _REACTOR_DBG
                 ss << name << " empty token " << token;
                 std::cout << ss.str() << std::endl;
 #endif
-            } else if (working.try_lock()) {
+            }
+            else if ( working.try_lock() )
+            {
                 // drain the events. It may block the thread for a while, but avoid unnecessary rescheduling.
                 EventType e;
-                while (events.try_pop(e)) {
-                    handler(std::move(e));
+                while ( events.try_pop( e ) )
+                {
+                    handler( std::move( e ) );
                 }
                 working.unlock();
-            } else if (token == currToken) {
+            }
+            else if ( token == currToken )
+            {
                 // if this is current last event and there's a working task, reschedule to ensure it being processed.
 #ifdef _REACTOR_DBG
                 ss << name << " reschedule token " << token;
                 std::cout << ss.str() << std::endl;
 #endif
                 ++pendingTasks;
-                dispatcher->TryPush([this, token]() {
-                    this->Process(token);
-                });
-            } else {
+                dispatcher->TryPush( [this, token]() { this->Process( token ); } );
+            }
+            else
+            {
                 // no reschedule. it will be processed by subsequent task or current working task.
 #ifdef _REACTOR_DBG
                 ss << name << " will process token " << token << ":" << currToken;
@@ -244,10 +262,9 @@ namespace reactor {
         }
     };
 
-    class PooledReactors
-        : public std::enable_shared_from_this<PooledReactors>,
-          public IReactorsBase {
-        template <typename EventType>
+    class PooledReactors : public std::enable_shared_from_this<PooledReactors>, public IReactorsBase
+    {
+        template<typename EventType>
         friend class PooledEventSender;
 
     public:
@@ -257,7 +274,7 @@ namespace reactor {
         using ReactorsPtr = std::shared_ptr<ThisType>;
 
     protected:
-        using HandlerSet = std::unordered_set<IEventSenderBase*>;
+        using HandlerSet = std::unordered_set<IEventSenderBase *>;
 
         HandlerSet _handlers;
         std::mutex _handlersMutex;
@@ -270,37 +287,43 @@ namespace reactor {
 
     public:
         //// event dispatcher interface
-        bool Init(size_t numThreads, size_t tasksCapacity) override
+        bool Init( size_t numThreads, size_t tasksCapacity ) override
         {
-            if (!numThreads || !tasksCapacity) {
+            if ( !numThreads || !tasksCapacity )
+            {
                 return false;
             }
             _stopping = false;
-            _threads.reserve(numThreads);
-            _tasks.reset(new TaskQ(tasksCapacity));
+            _threads.reserve( numThreads );
+            _tasks.reset( new TaskQ( tasksCapacity ) );
 
-            for (size_t i = 0; i < numThreads; ++i) {
-                _threads.push_back(std::thread([&]() {
-                    while (!_stopping) {
+            for ( size_t i = 0; i < numThreads; ++i )
+            {
+                _threads.push_back( std::thread( [&]() {
+                    while ( !_stopping )
+                    {
                         ThreadTask t;
 #ifdef QUEUE_TBB
-                        try {
-                            _tasks->pop(t);
+                        try
+                        {
+                            _tasks->pop( t );
                             t();
-                        } catch (tbb::user_abort&) {
-                            while (_tasks->try_pop(t))
+                        }
+                        catch ( tbb::user_abort & )
+                        {
+                            while ( _tasks->try_pop( t ) )
                                 t();
 #ifdef _REACTOR_DBG
                             std::cout << " user aborted\n";
 #endif
                         }
 #else
-                        if (_tasks->try_pop(t, 2000)) // usec
+                        if ( _tasks->try_pop( t, 2000 ) ) // usec
                             t();
 #endif
                     }
-                    assert(_tasks->empty() && "No tasks after stopping work!");
-                }));
+                    assert( _tasks->empty() && "No tasks after stopping work!" );
+                } ) );
             }
             return true;
         }
@@ -308,55 +331,59 @@ namespace reactor {
         void Term() override
         {
             _stopping = true;
-            if (_threads.empty())
+            if ( _threads.empty() )
                 return;
-            do { // signal stop
-                std::lock_guard<std::mutex> guard(_handlersMutex);
-                for (auto e : _handlers)
-                    e->Stop(true);
-            } while (false);
+            do
+            { // signal stop
+                std::lock_guard<std::mutex> guard( _handlersMutex );
+                for ( auto e : _handlers )
+                    e->Stop( true );
+            } while ( false );
 
             //        std::cout << " wait until no tasks " << _tasks->size() << std::endl;
-            while (!_tasks->empty())
+            while ( !_tasks->empty() )
                 ;
             //        std::cout << " removing hanlders " << _handlers.size() << std::endl;
-            while (!_handlers.empty())
-                RemoveHandler(*_handlers.begin());
+            while ( !_handlers.empty() )
+                RemoveHandler( *_handlers.begin() );
 #ifdef QUEUE_TBB
             _tasks->abort();
 #endif
             //        std::cout << " joining threads\n";
-            for (auto& th : _threads)
+            for ( auto &th : _threads )
                 th.join();
             _tasks.reset();
             _threads.clear();
         }
 
-        template <typename EventType>
-        PooledEventSender<EventType>* RegisterHandler(const EventHandlerFunc<EventType>& handler, size_t eventsCapacity = 256)
+        template<typename EventType>
+        PooledEventSender<EventType> *RegisterHandler( const EventHandlerFunc<EventType> &handler, size_t eventsCapacity = 256 )
         {
-            if (_stopping)
+            if ( _stopping )
                 return nullptr;
-            std::lock_guard<std::mutex> guard(_handlersMutex);
-            auto p = std::unique_ptr<PooledEventSender<EventType>>(new PooledEventSender<EventType>(std::dynamic_pointer_cast<SuperType>(GetThisPtr()), handler, eventsCapacity));
-            return static_cast<PooledEventSender<EventType>*>(*_handlers.emplace(p.release()).first);
+            std::lock_guard<std::mutex> guard( _handlersMutex );
+            auto p = std::unique_ptr<PooledEventSender<EventType>>(
+                    new PooledEventSender<EventType>( std::dynamic_pointer_cast<SuperType>( GetThisPtr() ), handler, eventsCapacity ) );
+            return static_cast<PooledEventSender<EventType> *>( *_handlers.emplace( p.release() ).first );
         }
 
         // block untill all pending messages being processed
-        void RemoveHandler(IEventSenderBase* sender) override
+        void RemoveHandler( IEventSenderBase *sender ) override
         {
-            do { // do not hold mutext until stopped
-                std::lock_guard<std::mutex> guard(_handlersMutex);
-                auto it = _handlers.find(sender);
-                if (it == _handlers.end())
+            do
+            { // do not hold mutext until stopped
+                std::lock_guard<std::mutex> guard( _handlersMutex );
+                auto it = _handlers.find( sender );
+                if ( it == _handlers.end() )
                     return;
-                _handlers.erase(it);
-                if (sender->Stop(true)) {
+                _handlers.erase( it );
+                if ( sender->Stop( true ) )
+                {
                     delete sender;
                     return;
                 }
-            } while (false);
-            sender->Stop(false);
+            } while ( false );
+            sender->Stop( false );
             delete sender;
         }
 
@@ -371,8 +398,7 @@ namespace reactor {
         }
 
         // should not be called directly, use New() instead
-        PooledReactors()
-            : _stopping(false)
+        PooledReactors() : _stopping( false )
         {
         }
 
@@ -384,15 +410,15 @@ namespace reactor {
         //// thread pool interface
         //
 
-        void TryPush(const ThreadTask& task) override
+        void TryPush( const ThreadTask &task ) override
         {
 
             //        while( !_stopping )  // alwasy push even stopping
             {
 #ifdef QUEUE_TBB
-                _tasks->push(task);
+                _tasks->push( task );
 #else
-                for (size_t i = 0; !_tasks->try_push(task, 1000000);)
+                for ( size_t i = 0; !_tasks->try_push( task, 1000000 ); )
                     ++i;
 #ifdef _REACTOR_DBG
                 std::stringstream ss;
@@ -404,8 +430,8 @@ namespace reactor {
         }
 
     protected:
-        PooledReactors(const PooledReactors&) = delete;
-        PooledReactors& operator=(const PooledReactors&) = delete;
+        PooledReactors( const PooledReactors & ) = delete;
+        PooledReactors &operator=( const PooledReactors & ) = delete;
     };
 
     using PooledReactorsPtr = std::shared_ptr<PooledReactors>;
@@ -414,8 +440,9 @@ namespace reactor {
     ///  SeparatedReactors (Each reactor is assigned a thread to handle event, shareing nothing with each other)
     ///
 
-    template <typename EventType>
-    class SeparatedEventSender : public IEventSender<EventType> {
+    template<typename EventType>
+    class SeparatedEventSender : public IEventSender<EventType>
+    {
     protected:
         typename IEventSender<EventType>::Handler handler;
 #ifdef QUEUE_TBB
@@ -431,72 +458,80 @@ namespace reactor {
         std::unique_ptr<std::thread> th;
 
     public:
-        SeparatedEventSender(const typename IEventSender<EventType>::Handler& h, size_t siz)
-            : handler(h)
-            , events(siz)
-            , stopping(false)
+        SeparatedEventSender( const typename IEventSender<EventType>::Handler &h, size_t siz ) : handler( h ), events( siz ), stopping( false )
         {
-            th.reset(new std::thread([this] {
-                while (!stopping) {
+            th.reset( new std::thread( [this] {
+                while ( !stopping )
+                {
                     EventType e;
 #ifdef QUEUE_TBB
-                    try {
-                        events.pop(e);
-                        handler(e);
-                    } catch (tbb::user_abort&) {
-                        while (events.try_pop(e))
-                            handler(e);
+                    try
+                    {
+                        events.pop( e );
+                        handler( e );
+                    }
+                    catch ( tbb::user_abort & )
+                    {
+                        while ( events.try_pop( e ) )
+                            handler( e );
                     }
 #else
-                    if (events.try_pop(e, 1000)) {
-                        handler(e);
+                    if ( events.try_pop( e, 1000 ) )
+                    {
+                        handler( e );
                     }
 #endif
                 }
-                assert(events.empty() && "User aborted!");
-            }));
+                assert( events.empty() && "User aborted!" );
+            } ) );
         }
 
-        template <typename... Args>
-        bool Send(Args... e)
+        template<typename... Args>
+        bool Send( Args... e )
         {
-            return Send(EventType(e...));
+            return Send( EventType( e... ) );
         }
 
-        bool Send(const EventType& e) override
+        bool Send( const EventType &e ) override
         {
-            if (stopping)
+            if ( stopping )
                 return false;
 #ifdef QUEUE_TBB
-            try {
-                events.push(e);
-            } catch (tbb::user_abort&) {
+            try
+            {
+                events.push( e );
+            }
+            catch ( tbb::user_abort & )
+            {
                 return false;
             }
 
 #else
-            while (!events.try_push(e, 500)) {
+            while ( !events.try_push( e, 500 ) )
+            {
                 ;
             }
 #endif
             return true;
         }
 
-        bool Stop(bool async = false) override
+        bool Stop( bool async = false ) override
         {
             stopping = true;
 #ifdef QUEUE_TBB
-            ++*reinterpret_cast<char*>(&async);
+            ++*reinterpret_cast<char *>( &async );
             events.abort();
             th->join();
             return true; // always sync if tbb
 #else
-            while (true) {
-                if (events.empty()) {
+            while ( true )
+            {
+                if ( events.empty() )
+                {
                     th->join();
                     return true; // stopped
                 }
-                if (async)
+                if ( async )
                     return false;
             }
 #endif
@@ -508,10 +543,9 @@ namespace reactor {
         }
     };
 
-    class SeparatedReactors
-        : public std::enable_shared_from_this<SeparatedReactors>,
-          public IReactorsBase {
-        template <typename EventType>
+    class SeparatedReactors : public std::enable_shared_from_this<SeparatedReactors>, public IReactorsBase
+    {
+        template<typename EventType>
         friend class EventSender;
 
     public:
@@ -520,7 +554,7 @@ namespace reactor {
         using SuperSharedType = std::enable_shared_from_this<SeparatedReactors>;
         using ReactorsPtr = std::shared_ptr<ThisType>;
 
-        using HandlerSet = std::unordered_set<IEventSenderBase*>;
+        using HandlerSet = std::unordered_set<IEventSenderBase *>;
 
     protected:
         std::atomic<size_t> _stopping;
@@ -529,7 +563,7 @@ namespace reactor {
 
     public:
         // threads will be created when handler/sender is created
-        bool Init(size_t, size_t) override
+        bool Init( size_t, size_t ) override
         {
             return true;
         }
@@ -537,35 +571,37 @@ namespace reactor {
         void Term() override
         {
             _stopping = true;
-            while (!_handlers.empty())
-                RemoveHandler(*_handlers.begin());
+            while ( !_handlers.empty() )
+                RemoveHandler( *_handlers.begin() );
         }
 
-        template <typename EventType>
-        SeparatedEventSender<EventType>* RegisterHandler(const EventHandlerFunc<EventType>& handler, size_t eventsCapacity = 32)
+        template<typename EventType>
+        SeparatedEventSender<EventType> *RegisterHandler( const EventHandlerFunc<EventType> &handler, size_t eventsCapacity = 32 )
         {
-            if (_stopping)
+            if ( _stopping )
                 return nullptr;
-            std::lock_guard<std::mutex> guard(_handlersMutex);
-            auto p = std::unique_ptr<SeparatedEventSender<EventType>>(new SeparatedEventSender<EventType>(handler, eventsCapacity));
-            return static_cast<SeparatedEventSender<EventType>*>(*_handlers.emplace(p.release()).first);
+            std::lock_guard<std::mutex> guard( _handlersMutex );
+            auto p = std::unique_ptr<SeparatedEventSender<EventType>>( new SeparatedEventSender<EventType>( handler, eventsCapacity ) );
+            return static_cast<SeparatedEventSender<EventType> *>( *_handlers.emplace( p.release() ).first );
         }
 
         // block untill all pending messages being processed
-        void RemoveHandler(IEventSenderBase* sender) override
+        void RemoveHandler( IEventSenderBase *sender ) override
         {
-            do { // do not hold mutext until stopped
-                std::lock_guard<std::mutex> guard(_handlersMutex);
-                auto it = _handlers.find(sender);
-                if (it == _handlers.end())
+            do
+            { // do not hold mutext until stopped
+                std::lock_guard<std::mutex> guard( _handlersMutex );
+                auto it = _handlers.find( sender );
+                if ( it == _handlers.end() )
                     return;
-                _handlers.erase(it);
-                if (sender->Stop(true)) {
+                _handlers.erase( it );
+                if ( sender->Stop( true ) )
+                {
                     delete sender;
                     return;
                 }
-            } while (false);
-            sender->Stop(false);
+            } while ( false );
+            sender->Stop( false );
             delete sender;
         }
 
@@ -580,8 +616,7 @@ namespace reactor {
         }
 
         // should not be called directly, use New() instead
-        SeparatedReactors()
-            : _stopping(false)
+        SeparatedReactors() : _stopping( false )
         {
         }
 
@@ -598,8 +633,9 @@ namespace reactor {
     ///
     /// all senders share the ownership of dispatcher.
 
-    template <typename EventType>
-    class GroupedEventSender : public IEventSender<EventType> {
+    template<typename EventType>
+    class GroupedEventSender : public IEventSender<EventType>
+    {
     public:
         class GroupedReactors;
         friend class GroupedReactors;
@@ -616,64 +652,68 @@ namespace reactor {
         using QueueType = blocking_queue<Task>; // MPSC queue
 #endif
 #endif
-        QueueType& events;
+        QueueType &events;
         std::mutex working;
         std::atomic<bool> stopping;
         std::atomic<size_t> currToken;
 
     public:
         // should not be called directly, use PooledEventDispatcher::RegisterHandler() to create it.
-        GroupedEventSender(const typename IEventSender<EventType>::Handler& h, QueueType& events)
-            : handler(h)
-            , events(events)
-            , stopping(false)
-            , currToken(0)
+        GroupedEventSender( const typename IEventSender<EventType>::Handler &h, QueueType &events )
+            : handler( h ), events( events ), stopping( false ), currToken( 0 )
         {
         }
 
-        template <typename... Args>
-        bool Send(Args... e)
+        template<typename... Args>
+        bool Send( Args... e )
         {
-            return Send(EventType(e...));
+            return Send( EventType( e... ) );
         }
 
-        bool Send(EventType&& e) override
+        bool Send( EventType &&e ) override
         {
-            if (stopping)
+            if ( stopping )
                 return false;
             std::stringstream ss;
-            auto task = [e = std::move(e), this] { handler( std::move(const_cast<EventType&>(e)) ); --currToken; };
+            auto task = [e = std::move( e ), this] {
+                handler( std::move( const_cast<EventType &>( e ) ) );
+                --currToken;
+            };
 #ifdef QUEUE_TBB
-            try {
-                events.push(std::move(task));
-            } catch (tbb::user_abort&) {
+            try
+            {
+                events.push( std::move( task ) );
+            }
+            catch ( tbb::user_abort & )
+            {
                 return false;
             }
 
 #else
-            while (!events.try_push(std::move(task), 1000000)) {
+            while ( !events.try_push( std::move( task ), 1000000 ) )
+            {
 #ifdef _REACTOR_DBG
                 ss << name << " failed to push event " << e;
                 std::cout << ss.str() << std::endl;
-                ss.str("");
+                ss.str( "" );
 #endif
             }
 #endif
 #ifdef _REACTOR_DBG
             ss << name << " pushed event " << e;
             std::cout << ss.str() << std::endl;
-            ss.str("");
+            ss.str( "" );
 #endif
 
             ++currToken;
             return true;
         }
 
-        bool Stop(bool async = false) override
+        bool Stop( bool async = false ) override
         {
             stopping = true;
-            if (!async)
-                while (CountEvents())
+            if ( !async )
+                while ( CountEvents() )
                     ;
             return currToken == 0; // not accurate!
         }
@@ -684,9 +724,8 @@ namespace reactor {
         }
     };
 
-    class GroupedReactors
-        : public std::enable_shared_from_this<GroupedReactors>,
-          public IReactorsBase {
+    class GroupedReactors : public std::enable_shared_from_this<GroupedReactors>, public IReactorsBase
+    {
     public:
         using ThisType = GroupedReactors;
         using SuperType = IReactorsBase;
@@ -694,7 +733,7 @@ namespace reactor {
         using ReactorsPtr = std::shared_ptr<ThisType>;
 
     protected:
-        using HandlerSet = std::unordered_set<IEventSenderBase*>;
+        using HandlerSet = std::unordered_set<IEventSenderBase *>;
 
         std::vector<HandlerSet> _handlers;
         std::mutex _handlersMutex;
@@ -711,81 +750,92 @@ namespace reactor {
 
     public:
         // tasksCapacity per therad
-        bool Init(size_t numThreads, size_t tasksCapacity) override
+        bool Init( size_t numThreads, size_t tasksCapacity ) override
         {
-            if (!numThreads || !tasksCapacity) {
+            if ( !numThreads || !tasksCapacity )
+            {
                 return false;
             }
             _stopping = false;
-            _threads.reserve(numThreads);
-            _tasksQ.reserve(numThreads);
-            _handlers.resize(numThreads);
+            _threads.reserve( numThreads );
+            _tasksQ.reserve( numThreads );
+            _handlers.resize( numThreads );
 
-            for (size_t i = 0; i < numThreads; ++i) {
-                _tasksQ.emplace_back(new TaskQ(tasksCapacity));
-                _threads.emplace_back([this, i]() {
-                    auto& tasks = *_tasksQ[i];
-                    while (!_stopping) {
+            for ( size_t i = 0; i < numThreads; ++i )
+            {
+                _tasksQ.emplace_back( new TaskQ( tasksCapacity ) );
+                _threads.emplace_back( [this, i]() {
+                    auto &tasks = *_tasksQ[i];
+                    while ( !_stopping )
+                    {
                         ThreadTask t;
 #ifdef QUEUE_TBB
-                        try {
-                            tasks.pop(t);
+                        try
+                        {
+                            tasks.pop( t );
                             t();
-                        } catch (tbb::user_abort&) {
+                        }
+                        catch ( tbb::user_abort & )
+                        {
 #ifdef _REACTOR_DBG
                             std::cout << "aborted thread " << i << std::endl;
 #endif
-                            while (tasks.try_pop(t)) {
+                            while ( tasks.try_pop( t ) )
+                            {
                                 t();
                             }
                         }
 #else
-                        if (tasks.try_pop(t, 2000)) // usec
+                        if ( tasks.try_pop( t, 2000 ) ) // usec
                             t();
 #endif
                     }
 #ifdef _REACTOR_DBG
                     std::cout << "exiting thread " << i << std::endl;
 #endif
-                    assert(tasks.empty() && "No tasks after stopping work!");
-                });
+                    assert( tasks.empty() && "No tasks after stopping work!" );
+                } );
             }
             return true;
         }
         void Term() override
         {
             _stopping = true;
-            if (_threads.empty())
+            if ( _threads.empty() )
                 return;
-            do { // signal stop
-                std::lock_guard<std::mutex> guard(_handlersMutex);
-                for (auto& h : _handlers)
-                    for (auto e : h)
-                        e->Stop(true);
-            } while (false);
+            do
+            { // signal stop
+                std::lock_guard<std::mutex> guard( _handlersMutex );
+                for ( auto &h : _handlers )
+                    for ( auto e : h )
+                        e->Stop( true );
+            } while ( false );
 
             {
-                std::lock_guard<std::mutex> guard(_handlersMutex);
+                std::lock_guard<std::mutex> guard( _handlersMutex );
 
-                for (size_t numTasks = 0; numTasks;) { // wait until no tasks in queue
+                for ( size_t numTasks = 0; numTasks; )
+                { // wait until no tasks in queue
                     numTasks = 0;
-                    for (auto& pTaskQ : _tasksQ)
+                    for ( auto &pTaskQ : _tasksQ )
                         numTasks += pTaskQ->size();
                 }
-                for (auto& h : _handlers)
-                    while (!h.empty()) {
+                for ( auto &h : _handlers )
+                    while ( !h.empty() )
+                    {
                         auto p = *h.begin();
-                        h.erase(h.begin());
+                        h.erase( h.begin() );
                         delete p;
                     }
 
 //            std::cout << "aborting tasks" <<  std::endl;
 #ifdef QUEUE_TBB
-                for (auto& pTaskQ : _tasksQ) {
+                for ( auto &pTaskQ : _tasksQ )
+                {
                     pTaskQ->abort();
                 }
 #endif
-                for (auto& th : _threads)
+                for ( auto &th : _threads )
                     th.join();
 //            std::cout << "clearing threads" <<  std::endl;
 #ifdef QUEUE_TBB
@@ -795,33 +845,35 @@ namespace reactor {
             }
         }
 
-        template <typename EventType>
-        GroupedEventSender<EventType>* RegisterHandler(const EventHandlerFunc<EventType>& handler, size_t)
+        template<typename EventType>
+        GroupedEventSender<EventType> *RegisterHandler( const EventHandlerFunc<EventType> &handler, size_t )
         {
-            if (_stopping)
+            if ( _stopping )
                 return nullptr;
-            std::lock_guard<std::mutex> guard(_handlersMutex);
+            std::lock_guard<std::mutex> guard( _handlersMutex );
             // find a taskQ with least handlers
             size_t k = 0;
-            for (size_t i = 0; i < _tasksQ.size(); ++i) {
-                if (_handlers[i].size() < _handlers[k].size())
+            for ( size_t i = 0; i < _tasksQ.size(); ++i )
+            {
+                if ( _handlers[i].size() < _handlers[k].size() )
                     k = i;
             }
-            auto p = std::unique_ptr<GroupedEventSender<EventType>>(new GroupedEventSender<EventType>(handler, *_tasksQ[k]));
-            return static_cast<GroupedEventSender<EventType>*>(*_handlers[k].emplace(p.release()).first);
+            auto p = std::unique_ptr<GroupedEventSender<EventType>>( new GroupedEventSender<EventType>( handler, *_tasksQ[k] ) );
+            return static_cast<GroupedEventSender<EventType> *>( *_handlers[k].emplace( p.release() ).first );
         }
 
         // block untill all pending messages being processed
-        void RemoveHandler(IEventSenderBase* sender) override
+        void RemoveHandler( IEventSenderBase *sender ) override
         {
-            std::lock_guard<std::mutex> guard(_handlersMutex);
-            for (auto& h : _handlers) {
-                auto it = h.find(sender);
+            std::lock_guard<std::mutex> guard( _handlersMutex );
+            for ( auto &h : _handlers )
+            {
+                auto it = h.find( sender );
 
-                if (it == h.end())
+                if ( it == h.end() )
                     continue;
-                h.erase(it);
-                while (!sender->Stop(false))
+                h.erase( it );
+                while ( !sender->Stop( false ) )
                     ;
                 delete sender;
                 return;
@@ -839,5 +891,5 @@ namespace reactor {
         }
     };
     using GroupedReactorsPtr = std::shared_ptr<GroupedReactors>;
-}
-}
+} // namespace reactor
+} // namespace ftl

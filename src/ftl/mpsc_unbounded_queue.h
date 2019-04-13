@@ -4,39 +4,40 @@
 #include <memory>
 #include <optional>
 
-namespace ftl {
+namespace ftl
+{
 
-struct AtomicNextNodeBase {
-    std::atomic<AtomicNextNodeBase*> pNext = nullptr;
+struct AtomicNextNodeBase
+{
+    std::atomic<AtomicNextNodeBase *> pNext = nullptr;
 };
 
 // unbounded lockfree generic MPSCQueue
-class MPSCUnboundedNodeQueue {
+class MPSCUnboundedNodeQueue
+{
 
     AtomicNextNodeBase mStub; // tail
-    std::atomic<AtomicNextNodeBase*> mHead; // push to head, pop from tail
-    AtomicNextNodeBase* mTail = nullptr;
+    std::atomic<AtomicNextNodeBase *> mHead; // push to head, pop from tail
+    AtomicNextNodeBase *mTail = nullptr;
 
     std::atomic<size_t> mSize = 0;
 
-    MPSCUnboundedNodeQueue(const MPSCUnboundedNodeQueue&) = delete;
-    MPSCUnboundedNodeQueue& operator=(const MPSCUnboundedNodeQueue&) = delete;
+    MPSCUnboundedNodeQueue( const MPSCUnboundedNodeQueue & ) = delete;
+    MPSCUnboundedNodeQueue &operator=( const MPSCUnboundedNodeQueue & ) = delete;
 
 public:
-    MPSCUnboundedNodeQueue()
-        : mHead(&mStub)
-        , mTail(&mStub)
+    MPSCUnboundedNodeQueue() : mHead( &mStub ), mTail( &mStub )
     {
     }
     ~MPSCUnboundedNodeQueue()
     { // allow destructing non-empty queue
     }
 
-    void push(AtomicNextNodeBase* pNode)
+    void push( AtomicNextNodeBase *pNode )
     {
-        pNode->pNext.store(nullptr, std::memory_order_relaxed);
-        auto phead = mHead.exchange(pNode, std::memory_order_acq_rel);
-        phead->pNext.store(pNode, std::memory_order_release);
+        pNode->pNext.store( nullptr, std::memory_order_relaxed );
+        auto phead = mHead.exchange( pNode, std::memory_order_acq_rel );
+        phead->pNext.store( pNode, std::memory_order_release );
     }
 
     size_t size() const
@@ -48,40 +49,42 @@ public:
         return size() == 0;
     }
 
-    AtomicNextNodeBase* top()
+    AtomicNextNodeBase *top()
     {
-        if (mTail == &mStub) // possibly empty
+        if ( mTail == &mStub ) // possibly empty
         {
-            if (auto pnext = mTail->pNext.load(std::memory_order_acquire))
+            if ( auto pnext = mTail->pNext.load( std::memory_order_acquire ) )
                 mTail = pnext; // update tail
             else
                 return nullptr; // empty
         }
         return mTail;
     }
-    AtomicNextNodeBase* pop()
+    AtomicNextNodeBase *pop()
     {
-        if (mTail == &mStub) // possibly empty
+        if ( mTail == &mStub ) // possibly empty
         {
-            if (auto pnext = mTail->pNext.load(std::memory_order_acquire))
+            if ( auto pnext = mTail->pNext.load( std::memory_order_acquire ) )
                 mTail = pnext; // update tail
             else
                 return nullptr; // empty
         }
         auto tail = mTail;
-        if (!mTail->pNext.load(std::memory_order_acquire)) // only 1 elements
-            push(&mStub); // push mStub, so that mHead is updated
-        mTail = tail->pNext.load(std::memory_order_acquire); // now mTail may or may not point to mStub
-        mSize.fetch_sub(1);
+        if ( !mTail->pNext.load( std::memory_order_acquire ) ) // only 1 elements
+            push( &mStub ); // push mStub, so that mHead is updated
+        mTail = tail->pNext.load( std::memory_order_acquire ); // now mTail may or may not point to mStub
+        mSize.fetch_sub( 1 );
         return tail;
     }
 };
 
 // unbounded lockfree MPSCQueue
-template <class T, class Alloc = std::allocator<T>>
-class MPSCUnboundedQueue {
+template<class T, class Alloc = std::allocator<T>>
+class MPSCUnboundedQueue
+{
 
-    struct Node : AtomicNextNodeBase {
+    struct Node : AtomicNextNodeBase
+    {
         T val;
     };
     using allocator = typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
@@ -89,27 +92,25 @@ class MPSCUnboundedQueue {
     MPSCUnboundedNodeQueue mQue;
     Alloc mAlloc;
 
-    MPSCUnboundedQueue(const MPSCUnboundedQueue&) = delete;
-    MPSCUnboundedQueue& operator=(const MPSCUnboundedQueue&) = delete;
+    MPSCUnboundedQueue( const MPSCUnboundedQueue & ) = delete;
+    MPSCUnboundedQueue &operator=( const MPSCUnboundedQueue & ) = delete;
 
 public:
-    MPSCUnboundedQueue(Alloc&& alloc = Alloc())
-        : mQue()
-        , mAlloc(alloc)
+    MPSCUnboundedQueue( Alloc &&alloc = Alloc() ) : mQue(), mAlloc( alloc )
     {
     }
     ~MPSCUnboundedQueue()
     {
-        while (pop())
+        while ( pop() )
             ;
     }
 
-    template <class... Args>
-    void push(Args&&... args)
+    template<class... Args>
+    void push( Args &&... args )
     {
-        auto pNode = mAlloc.allocate(1);
-        new (&pNode->val) T(std::forward<Args>(args)...);
-        mQue.push(pNode);
+        auto pNode = mAlloc.allocate( 1 );
+        new ( &pNode->val ) T( std::forward<Args>( args )... );
+        mQue.push( pNode );
     }
 
     size_t size() const
@@ -121,24 +122,26 @@ public:
         return mQue.empty();
     }
 
-    T* top()
+    T *top()
     {
-        if (auto pNode = static_cast<Node*>(mQue.top())) {
+        if ( auto pNode = static_cast<Node *>( mQue.top() ) )
+        {
             return &pNode->val;
         }
         return nullptr;
     }
     // buf: uninitialized memory
-    bool pop(T* buf = nullptr)
+    bool pop( T *buf = nullptr )
     {
-        if (auto pNode = static_cast<Node*>(mQue.pop())) {
-            if (buf)
-                new (buf) T(std::move(pNode->val));
+        if ( auto pNode = static_cast<Node *>( mQue.pop() ) )
+        {
+            if ( buf )
+                new ( buf ) T( std::move( pNode->val ) );
             pNode->val.~T();
-            mAlloc.deallocate(pNode);
+            mAlloc.deallocate( pNode );
             return true;
         }
         return false;
     }
 };
-}
+} // namespace ftl
