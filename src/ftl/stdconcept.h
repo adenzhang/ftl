@@ -98,7 +98,7 @@ namespace ftl
 
 ////=======================================================
 ////              template helpers
-/// overload, remove_cvref_t
+/// overload, remove_cvref_t, Identity
 ////=======================================================
 
 template<class... Ts>
@@ -112,6 +112,11 @@ overload( Ts... )->overload<Ts...>;
 template<class T>
 using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
+template<class T>
+struct Identity
+{
+    typedef T type;
+};
 
 ////=======================================================
 ////              tuple helpers
@@ -262,6 +267,15 @@ struct variant_has_type
     static constexpr bool value = variant_accepted_index<T, V>::value != std::variant_npos;
 };
 
+////=======================================================
+////              array helpers
+////=======================================================
+
+template<class T, size_t N>
+constexpr size_t array_size( T[N] )
+{
+    return N;
+}
 //=============================================
 //   GetClassName
 //=============================================
