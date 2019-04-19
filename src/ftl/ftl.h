@@ -15,6 +15,7 @@
 #include <ctime>
 #include <deque>
 #include <fstream>
+#include <ftl/stdconcept.h>
 #include <ftl/binary_tree.h>
 #include <ftl/circular_queue.h>
 #include <ftl/container_serialization.h>

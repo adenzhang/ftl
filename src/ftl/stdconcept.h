@@ -1,7 +1,40 @@
 #pragma once
-#include <cstring>
-#include <functional>
+#include <tuple>
+#include <map>
 #include <variant>
+#include <cstring>
+
+///=============================================================
+///               std library extention
+///=============================================================
+
+namespace std
+{
+template<class T1, class T2>
+struct hash<std::pair<T1, T2>>
+{
+    size_t operator()( const std::pair<T1, T2> &p ) const noexcept
+    {
+        return std::hash<T1>()( p.first ) ^ std::hash<T2>()( p.second );
+    }
+};
+
+template<class... Args>
+struct hash<std::tuple<Args...>>
+{
+    using Tuple = std::tuple<Args...>;
+
+    template<size_t N = 0>
+    size_t operator()( const std::tuple<Args...> &t ) const noexcept
+    {
+        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
+            return std::hash<std::tuple_element_t<N, Tuple>>()( std::get<N>( t ) );
+        else
+            return std::hash<std::tuple_element_t<N, Tuple>>()( std::get<N>( t ) ) ^ this->operator()<N + 1>( t );
+    }
+};
+
+} // namespace std
 
 ////============================================
 ////              FTL_CHECK_EXPR
@@ -60,50 +93,13 @@
 
 #define FTL_HAS_MEMBER_TYPE( member, name ) FTL_CHECK_EXPR_TYPE( name, ::std::declval<T>().member )
 
-////=======================================================
-////              object attribute definition macros
-////=======================================================
-
-#define DEF_ATTRI_GETTER( name, member )                                                                                                            \
-public:                                                                                                                                             \
-    const auto &get_##name() const                                                                                                                  \
-    {                                                                                                                                               \
-        return member;                                                                                                                              \
-    }
-
-#define DEF_ATTRI_SETTER( name, member )                                                                                                            \
-public:                                                                                                                                             \
-    void set_##name( const decltype( member ) &v )                                                                                                  \
-    {                                                                                                                                               \
-        member = v;                                                                                                                                 \
-    }
-
-#define DEF_ATTRI( name, type, member, defaultval )                                                                                                 \
-    type member = defaultval;                                                                                                                       \
-                                                                                                                                                    \
-public:                                                                                                                                             \
-    const auto &get_##name() const                                                                                                                  \
-    {                                                                                                                                               \
-        return member;                                                                                                                              \
-    }                                                                                                                                               \
-    void set_##name( const decltype( member ) &v )                                                                                                  \
-    {                                                                                                                                               \
-        member = v;                                                                                                                                 \
-    }
-
-#define DEF_ATTRI_ACCESSOR( name, member )                                                                                                          \
-public:                                                                                                                                             \
-    const auto &get_##name() const                                                                                                                  \
-    {                                                                                                                                               \
-        return member;                                                                                                                              \
-    }                                                                                                                                               \
-    void set_##name( const decltype( member ) &v )                                                                                                  \
-    {                                                                                                                                               \
-        member = v;                                                                                                                                 \
-    }
-
 namespace ftl
 {
+
+////=======================================================
+////              template helpers
+/// overload, remove_cvref_t
+////=======================================================
 
 template<class... Ts>
 struct overload : Ts...
@@ -113,9 +109,127 @@ struct overload : Ts...
 template<class... Ts>
 overload( Ts... )->overload<Ts...>;
 
+template<class T>
+using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
+
+
 ////=======================================================
 ////              tuple helpers
 ////=======================================================
+
+namespace tuple_utils
+{
+    template<size_t N, class Reduce, class Initial, class... Args>
+    auto reduce( std::tuple<Args...> &&t, Reduce &&red, Initial &&initial )
+    {
+        using Tuple = std::tuple<Args...>;
+        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
+            return red( initial, std::get<N>( t ) );
+        else
+            return reduce<N + 1>( std::forward<Tuple>( t ), std::forward<Reduce>( red ), red( initial, std::get<N>( t ) ) );
+    }
+    template<size_t N, class Reduce, class Initial, class... Args>
+    auto reduce( const std::tuple<Args...> &t, Reduce &&red, Initial &&initial )
+    {
+        using Tuple = std::tuple<Args...>;
+        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
+            return red( initial, std::get<N>( t ) );
+        else
+            return reduce<( N + 1 )>( t, std::forward<Reduce>( red ), red( initial, std::get<N>( t ) ) );
+    }
+
+    template<size_t N, class Callback, class... Args>
+    void enumerate( std::tuple<Args...> &&t, Callback &&cb )
+    {
+        using Tuple = std::tuple<Args...>;
+        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
+            cb( N, std::get<N>( t ) );
+        else
+            enumerate<N + 1>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+    }
+    template<size_t N, class Callback, class... Args>
+    void enumerate( const std::tuple<Args...> &t, Callback &&cb )
+    {
+        using Tuple = std::tuple<Args...>;
+        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
+            cb( N, std::get<N>( t ) );
+        else
+            enumerate<N + 1>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+    }
+
+    template<size_t N, class Callback, class... Args>
+    void foreach ( std::tuple<Args...> &&t, Callback && cb )
+    {
+        using Tuple = std::tuple<Args...>;
+        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
+            cb( std::get<N>( t ) );
+        else
+            foreach
+                <N + 1>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+    }
+    template<size_t N, class Callback, class... Args>
+    void foreach ( const std::tuple<Args...> &t, Callback && cb )
+    {
+        using Tuple = std::tuple<Args...>;
+        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
+            cb( std::get<N>( t ) );
+        else
+            foreach
+                <N + 1>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+    }
+}; // namespace tuple_utils
+
+struct tuple_reducer
+{
+    template<class Reduce, class Initial, class... Args>
+    auto operator()( std::tuple<Args...> &&t, Reduce &&reduce, Initial &&initial ) const
+    {
+        using Tuple = std::tuple<Args...>;
+        return tuple_utils::reduce<0>( std::forward<Tuple>( t ), std::forward<Reduce>( reduce ), reduce( initial, std::get<0>( t ) ) );
+    }
+    template<class Reduce, class Initial, class... Args>
+    auto operator()( const std::tuple<Args...> &t, Reduce &&reduce, Initial &&initial ) const
+    {
+        using Tuple = std::tuple<Args...>;
+        return tuple_utils::reduce<0>( t, std::forward<Reduce>( reduce ), reduce( initial, std::get<0>( t ) ) );
+    }
+};
+static const tuple_reducer tuple_reduce{};
+
+struct tuple_foreacher
+{
+    template<class Callback, class... Args>
+    void operator()( std::tuple<Args...> &&t, Callback &&cb ) const
+    {
+        using Tuple = std::tuple<Args...>;
+        tuple_utils::foreach<0>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+    }
+    template<class Callback, class... Args>
+    void operator()( const std::tuple<Args...> &t, Callback &&cb ) const
+    {
+        using Tuple = std::tuple<Args...>;
+        tuple_utils::foreach<0>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+    }
+};
+static const tuple_foreacher tuple_foreach{};
+
+struct tuple_enumerator
+{
+    template<class Callback, class... Args>
+    void operator()( std::tuple<Args...> &&t, Callback &&cb ) const
+    {
+        using Tuple = std::tuple<Args...>;
+        tuple_utils::enumerate<0>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+    }
+    template<class Callback, class... Args>
+    void operator()( const std::tuple<Args...> &t, Callback &&cb ) const
+    {
+        using Tuple = std::tuple<Args...>;
+        tuple_utils::enumerate<0>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+    }
+};
+static const tuple_enumerator tuple_enumerate{};
+
 template<typename T, typename Tuple>
 struct tuple_has_type;
 
@@ -146,142 +260,6 @@ template<class T, class V>
 struct variant_has_type
 {
     static constexpr bool value = variant_accepted_index<T, V>::value != std::variant_npos;
-};
-
-////=======================================================
-////              MemberGetter
-////=======================================================
-
-template<class ObjT, class T>
-struct MemberGetter_Var
-{
-    T ObjT::*pMember;
-
-    MemberGetter_Var( T ObjT::*pMember = nullptr ) : pMember( pMember )
-    {
-    }
-
-    const T &operator()( const ObjT &obj ) const
-    {
-        return obj.*pMember;
-    }
-};
-
-template<class ObjT, class T>
-struct MemberGetter_Func
-{
-    using Fn = const T &(ObjT::*)() const;
-    Fn pMember;
-
-    MemberGetter_Func( Fn pMember = nullptr ) : pMember( pMember )
-    {
-    }
-
-    const T &operator()( const ObjT &obj ) const
-    {
-        return ( obj.*pMember )();
-    }
-};
-
-template<class ObjT, class T>
-struct MemberGetter
-{
-    using Fn = std::function<const T &( const ObjT & )>;
-    Fn func;
-
-    MemberGetter( Fn &&g ) : func( std::move( g ) )
-    {
-    }
-
-    const T &operator()( const ObjT &obj ) const
-    {
-        return func( obj );
-    }
-};
-
-//================= Member Setter/Getter ======================
-
-template<class ObjT, class T>
-struct MemberSetter_Var
-{
-    T ObjT::*pMember;
-
-    MemberSetter_Var( T ObjT::*pMember = nullptr ) : pMember( pMember )
-    {
-    }
-
-    void operator()( ObjT &obj, const T &v ) const
-    {
-        obj.*pMember = v;
-    }
-};
-
-template<class ObjT, class T>
-struct MemberSetter_Func
-{
-    using Fn = void ( ObjT::* )( const T & );
-    Fn pMember = nullptr;
-
-    MemberSetter_Func( Fn pMember = nullptr ) : pMember( pMember )
-    {
-    }
-
-    void operator()( ObjT &obj, const T &v ) const
-    {
-        ( obj.*pMember )( v );
-    }
-};
-
-template<class ObjT, class T>
-struct MemberSetter
-{
-    using Fn = std::function<void( ObjT &, const T & )>;
-    Fn func;
-
-    MemberSetter( Fn &&s ) : func( std::move( s ) )
-    {
-    }
-
-    void operator()( ObjT &obj, const T &v ) const
-    {
-        return func( obj, v );
-    }
-};
-
-template<class ObjT, class T>
-struct Member
-{
-    using MemGetFn = const T &(ObjT::*)() const;
-    using MemSetFn = void ( ObjT::* )( const T & );
-
-    MemberGetter<ObjT, T> getter;
-    MemberSetter<ObjT, T> setter;
-
-    Member( T ObjT::*pMember = nullptr ) : getter( MemberGetter_Var( pMember ) ), setter( MemberSetter_Var( pMember ) )
-    {
-    }
-
-    Member( const MemGetFn g, const MemberSetter<ObjT, T> s ) : getter( MemberGetter_Func( g ) ), setter( MemberSetter_Func( s ) )
-    {
-    }
-    Member( const typename MemberGetter<ObjT, T>::Fn &g, const typename MemberSetter<ObjT, T>::Fn &s ) : getter( g ), setter( s )
-    {
-    }
-
-    const T &get( const ObjT &obj ) const
-    {
-        return getter( obj );
-    }
-
-    T &get( ObjT &obj ) const
-    {
-        return const_cast<T &>( getter( obj ) );
-    }
-
-    void set( ObjT &obj, const T &v ) const
-    {
-        return setter( obj, v );
-    }
 };
 
 //=============================================
@@ -335,4 +313,6 @@ std::string GetTypeNameString( void )
     auto s = internal::GetTypeNameHelper<T>::GetTypeNameRaw();
     return std::string( s, strlen( s ) - internal::GetTypeNameHelper<T>::BACK_SIZE );
 }
+
+
 } // namespace ftl
