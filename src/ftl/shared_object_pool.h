@@ -1,3 +1,20 @@
+/*
+ * This file is part of the ftl (Fast Template Library) distribution (https://github.com/adenzhang/ftl).
+ * Copyright (c) 2018 Aden Zhang.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, version 3.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #ifndef _SHAREDOBJECTPOOL_H_
 #define _SHAREDOBJECTPOOL_H_
 
@@ -10,7 +27,8 @@
 #include <iostream>
 
 
-namespace ftl {
+namespace ftl
+{
 
 
 template<typename T>
@@ -38,15 +56,13 @@ protected:
     safe_enable_shared_from_this &operator=( const safe_enable_shared_from_this & ) = delete;
 };
 
-template<typename ChildT, typename Object, typename ObjectAlloc = std::allocator<Object>, typename QueueT = ftl::intrusive_singly_list<Object> >
+template<typename ChildT, typename Object, typename ObjectAlloc = std::allocator<Object>, typename QueueT = ftl::intrusive_singly_list<Object>>
 class shared_object_pool_base
 {
 public:
     typedef shared_object_pool_base this_type;
     // should be protected
-    shared_object_pool_base( const ObjectAlloc &alloc = ObjectAlloc() )
-        : objectAlloc( alloc )
-        , allocatedCount( 0 )
+    shared_object_pool_base( const ObjectAlloc &alloc = ObjectAlloc() ) : objectAlloc( alloc ), allocatedCount( 0 )
     {
     }
 
@@ -79,17 +95,14 @@ public:
     struct object_destroy
     {
         Ptr pPool; // ensure pool existence
-        object_destroy( const Ptr &p = nullptr )
-            : pPool( p )
+        object_destroy( const Ptr &p = nullptr ) : pPool( p )
         {
         }
-        object_destroy( const object_destroy &d )
-            : pPool( d.pPool )
+        object_destroy( const object_destroy &d ) : pPool( d.pPool )
         {
             //            std::cout << "return_object(return_object&)" << std::endl;
         }
-        object_destroy( object_destroy &&d )
-            : pPool( std::move( d.pPool ) )
+        object_destroy( object_destroy &&d ) : pPool( std::move( d.pPool ) )
         {
         }
         object_destroy &operator=( const object_destroy &d )
@@ -125,8 +138,9 @@ public:
         //        std::cout << "~shared_object_pool_base, allocated size:" << allocatedCount << " == freeQ size:" << freeQ.size() << std::endl;
         if ( !freeQ.empty() )
         { // todo lock
-            while( !freeQ.empty() ) {
-                objectAlloc.deallocate(reinterpret_cast<Object*>(&freeQ.top()), 1 );
+            while ( !freeQ.empty() )
+            {
+                objectAlloc.deallocate( reinterpret_cast<Object *>( &freeQ.top() ), 1 );
                 freeQ.pop();
             }
         }
@@ -184,7 +198,11 @@ public:
 };
 
 
-template<typename ChildT, typename Object, size_t CapacityT, typename ObjectAlloc = std::allocator<Object>, typename QueueT = ftl::intrusive_singly_list<Object>>
+template<typename ChildT,
+         typename Object,
+         size_t CapacityT,
+         typename ObjectAlloc = std::allocator<Object>,
+         typename QueueT = ftl::intrusive_singly_list<Object>>
 class fixed_shared_pool_base : public shared_object_pool_base<ChildT, Object, ObjectAlloc, QueueT>
 {
 protected:
@@ -197,12 +215,11 @@ public:
     static const size_t capacity = CapacityT;
 
     // should be protected
-    fixed_shared_pool_base( const ObjectAlloc &alloc = ObjectAlloc() )
-        : base_type( alloc )
+    fixed_shared_pool_base( const ObjectAlloc &alloc = ObjectAlloc() ) : base_type( alloc )
     {
         mObjects = base_type::objectAlloc.allocate( CapacityT, nullptr );
         for ( size_t i = 0; i < CapacityT; ++i )
-            base_type::freeQ.push( *(mObjects + i) );
+            base_type::freeQ.push( *( mObjects + i ) );
     }
 
     ~fixed_shared_pool_base()
@@ -239,8 +256,7 @@ public:
 
     friend struct safe_enable_shared_from_this<this_type>::Alloc;
 
-    shared_object_pool( const ObjectAlloc &alloc = ObjectAlloc() )
-        : base_type( alloc )
+    shared_object_pool( const ObjectAlloc &alloc = ObjectAlloc() ) : base_type( alloc )
     {
     }
     ~shared_object_pool()
@@ -282,8 +298,7 @@ public:
 
     friend struct safe_enable_shared_from_this<this_type>::Alloc;
 
-    fixed_shared_pool( const ObjectAlloc &alloc = ObjectAlloc() )
-        : base_type( alloc )
+    fixed_shared_pool( const ObjectAlloc &alloc = ObjectAlloc() ) : base_type( alloc )
     {
     }
 
@@ -298,14 +313,14 @@ public:
         Object *p = nullptr;
         if ( !base_type::freeQ.empty() )
         {
-//            using OBJECTPTR = Object*;
-//            auto &r = base_type::freeQ.top(); //reinterpret_cast<Object*>(base_type::freeQ.top<Object*>());
-//            auto &rr = reinterpret_cast<OBJECTPTR&>(r);
+            //            using OBJECTPTR = Object*;
+            //            auto &r = base_type::freeQ.top(); //reinterpret_cast<Object*>(base_type::freeQ.top<Object*>());
+            //            auto &rr = reinterpret_cast<OBJECTPTR&>(r);
             p = &base_type::freeQ.top();
             base_type::freeQ.pop();
         }
         return p;
     }
 };
-}
+} // namespace ftl
 #endif // _SHAREDOBJECTPOOL_H_
