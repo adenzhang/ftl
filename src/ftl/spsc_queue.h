@@ -53,7 +53,7 @@ public:
     {
         if ( mBuf )
         {
-            mDel( mBuf, mCap );
+            mDel( mBuf );
             mBuf = nullptr;
         }
     }
@@ -74,7 +74,7 @@ public:
     {
         auto pushpos = mPushPos.load( std::memory_order_relaxed ) % mCap;
         auto poppos = mPopPos.load( std::memory_order_relaxed ) % mCap;
-        return pushpos > poppos ? ( pushpos - poppos ) : ( poppos - pushpos - 1 );
+        return pushpos >= poppos ? ( pushpos - poppos ) : ( mCap - poppos + pushpos );
     }
 
     template<class... Args>
@@ -84,7 +84,7 @@ public:
             return nullptr;
         auto pushpos = mPushPos.load( std::memory_order_relaxed ) % mCap;
         auto poppos = mPopPos.load( std::memory_order_acquire ) % mCap;
-        if ( ( pushpos + 1 ) % mCap == poppos )
+        if ( ( pushpos + 1 ) % mCap == poppos ) // full
             return nullptr;
         new ( mBuf + pushpos ) T( std::forward<Args>( args )... );
         mPushPos.fetch_add( 1, std::memory_order_acq_rel );
@@ -97,7 +97,7 @@ public:
             return nullptr;
         auto pushpos = mPushPos.load( std::memory_order_acquire ) % mCap;
         auto poppos = mPopPos.load( std::memory_order_relaxed ) % mCap;
-        if ( pushpos == poppos )
+        if ( pushpos == poppos ) // empty
             return nullptr;
         return &mBuf[poppos];
     }
@@ -108,7 +108,7 @@ public:
             return false;
         auto pushpos = mPushPos.load( std::memory_order_acquire ) % mCap;
         auto poppos = mPopPos.load( std::memory_order_relaxed ) % mCap;
-        if ( pushpos == poppos )
+        if ( pushpos == poppos ) // empty
             return false;
         if ( buf )
             new ( buf ) T( std::move( mBuf[poppos] ) );

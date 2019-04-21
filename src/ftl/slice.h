@@ -24,53 +24,35 @@ struct slice_node
 
     template<class Deleter = std::default_delete<T>>
     slice_node( T *p = nullptr, size_type capacity = 0, const Deleter &d = Deleter(), const AllocT &alloc = AllocT() )
-        : mPtr( p, d )
-        , mCap( capacity )
-        , mAlloc( alloc )
+        : mPtr( p, d ), mCap( capacity ), mAlloc( alloc )
     {
     }
 
     template<size_t N, class Deleter = std::default_delete<T>>
-    slice_node( T p[N], Deleter d = Deleter(), const AllocT &alloc = AllocT() )
-        : mPtr( p, d )
-        , mCap( N )
-        , mAlloc( alloc )
+    slice_node( T p[N], Deleter d = Deleter(), const AllocT &alloc = AllocT() ) : mPtr( p, d ), mCap( N ), mAlloc( alloc )
     {
     }
 
-    slice_node( const std::shared_ptr<T> &p, size_type capacity, const AllocT &alloc = AllocT() )
-        : mPtr( p )
-        , mCap( capacity )
-        , mAlloc( alloc )
+    slice_node( const std::shared_ptr<T> &p, size_type capacity, const AllocT &alloc = AllocT() ) : mPtr( p ), mCap( capacity ), mAlloc( alloc )
     {
     }
 
     slice_node( std::shared_ptr<T> &&p, size_type capacity, const AllocT &alloc = AllocT() )
-        : mPtr( std::move( p ) )
-        , mCap( capacity )
-        , mAlloc( alloc )
+        : mPtr( std::move( p ) ), mCap( capacity ), mAlloc( alloc )
     {
     }
 
     template<class Deleter>
     slice_node( std::unique_ptr<T, Deleter> &&p, size_type capacity, const AllocT &alloc = AllocT() )
-        : mPtr( std::move( p ) )
-        , mCap( capacity )
-        , mAlloc( alloc )
+        : mPtr( std::move( p ) ), mCap( capacity ), mAlloc( alloc )
     {
     }
 
-    slice_node( const this_type &a )
-        : mPtr( a.mPtr )
-        , mCap( a.mCap )
-        , mAlloc( a.mAlloc )
+    slice_node( const this_type &a ) : mPtr( a.mPtr ), mCap( a.mCap ), mAlloc( a.mAlloc )
     {
     }
 
-    slice_node( this_type &&a )
-        : mPtr( std::move( a.mPtr ) )
-        , mCap( a.mCap )
-        , mAlloc( std::move( a.mAlloc ) )
+    slice_node( this_type &&a ) : mPtr( std::move( a.mPtr ) ), mCap( a.mCap ), mAlloc( std::move( a.mAlloc ) )
     {
     }
 
@@ -168,53 +150,37 @@ public:
            size_type capacity = 0,
            const Deleter &d = Deleter(),
            const AllocT &alloc = AllocT() )
-        : mNode( std::make_shared<node_type>( p, capacity == 0 ? size : capacity, d, alloc ) )
-        , mOffset( offset )
-        , mSize( size )
+        : mNode( std::make_shared<node_type>( p, capacity == 0 ? size : capacity, d, alloc ) ), mOffset( offset ), mSize( size )
     {
     }
 
     template<size_t N, class Deleter = std::default_delete<T>>
     slice( T p[N], size_t offset, size_type size, Deleter d = Deleter(), const AllocT &alloc = AllocT() )
-        : mNode( std::make_shared<node_type>( p, N, d, alloc ) )
-        , mOffset( offset )
-        , mSize( size )
+        : mNode( std::make_shared<node_type>( p, N, d, alloc ) ), mOffset( offset ), mSize( size )
     {
     }
 
     slice( const std::shared_ptr<T> &p, size_t offset, size_type size, size_type capacity = 0, const AllocT &alloc = AllocT() )
-        : mNode( std::make_shared<node_type>( p, capacity == 0 ? size : capacity, alloc ) )
-        , mOffset( offset )
-        , mSize( size )
+        : mNode( std::make_shared<node_type>( p, capacity == 0 ? size : capacity, alloc ) ), mOffset( offset ), mSize( size )
     {
     }
 
     slice( std::shared_ptr<T> &&p, size_t offset, size_type size, size_type capacity = 0, const AllocT &alloc = AllocT() )
-        : mNode( std::make_shared<node_type>( std::move( p ), capacity == 0 ? size : capacity, alloc ) )
-        , mOffset( offset )
-        , mSize( size )
+        : mNode( std::make_shared<node_type>( std::move( p ), capacity == 0 ? size : capacity, alloc ) ), mOffset( offset ), mSize( size )
     {
     }
 
     template<class Deleter>
     slice( std::unique_ptr<T, Deleter> &&p, size_t offset, size_type size, size_type capacity = 0, const AllocT &alloc = AllocT() )
-        : mNode( std::make_shared<node_type>( std::move( p ), capacity == 0 ? size : capacity, alloc ) )
-        , mOffset( offset )
-        , mSize( size )
+        : mNode( std::make_shared<node_type>( std::move( p ), capacity == 0 ? size : capacity, alloc ) ), mOffset( offset ), mSize( size )
     {
     }
 
-    slice( const this_type &a )
-        : mNode( a.mNode )
-        , mOffset( a.mOffset )
-        , mSize( a.mSize )
+    slice( const this_type &a ) : mNode( a.mNode ), mOffset( a.mOffset ), mSize( a.mSize )
     {
     }
 
-    slice( this_type &&a )
-        : mNode( std::move( a.mNode ) )
-        , mOffset( a.mOffset )
-        , mSize( a.mSize )
+    slice( this_type &&a ) : mNode( std::move( a.mNode ) ), mOffset( a.mOffset ), mSize( a.mSize )
     {
     }
 
@@ -446,4 +412,4 @@ protected:
     size_type mOffset = 0;
     size_type mSize = 0;
 };
-}
+} // namespace ftl

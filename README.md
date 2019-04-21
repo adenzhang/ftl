@@ -31,6 +31,13 @@ Different object pools.
 - ChunkPool: the growth strategy is parameterized.
 - FixedPool: fixed sized object pool.
 
+### Object Pool (object_pool.h)
+- ObjectPool
+
+### Thread Pool (thread_pool.h)
+- ThreadPool: all threads share a concurrent fix-size message queue
+- ThreadArray: each thread has its own fix-size message queue
+
 ### circular_queue (circular_queue.h)
 - circular_queue
 - inline_circular_queue

@@ -55,6 +55,7 @@ public:
         pNode->pNext.store( nullptr, std::memory_order_relaxed );
         auto phead = mHead.exchange( pNode, std::memory_order_acq_rel );
         phead->pNext.store( pNode, std::memory_order_release );
+        mSize.fetch_add( 1 );
     }
 
     size_t size() const
@@ -94,6 +95,7 @@ public:
         return tail;
     }
 };
+
 
 // unbounded lockfree MPSCQueue
 template<class T, class Alloc = std::allocator<T>>
