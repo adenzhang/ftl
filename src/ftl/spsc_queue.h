@@ -24,10 +24,10 @@ namespace ftl
 {
 
 // lockfree SPSCRingQueue
-template<class T, class Delete = std::default_delete<T>>
+template<class T, class AllocT = std::allocator<T>>
 class SPSCRingQueue
 {
-    Delete mDel;
+    AllocT mAlloc;
     const size_t mCap = 0;
     T *mBuf = nullptr;
     std::atomic<size_t> mPushPos = 0, mPopPos = 0;
@@ -36,14 +36,24 @@ class SPSCRingQueue
     SPSCRingQueue &operator=( const SPSCRingQueue & ) = delete;
 
 public:
-    SPSCRingQueue( size_t cap, T *buf, Delete &&del = Delete() ) : mDel( del ), mCap( cap ), mBuf( buf )
+    SPSCRingQueue( size_t cap, AllocT &&alloc = AllocT() ) : mAlloc( alloc ), mCap( cap ), mBuf( mAlloc.allocate( cap ) )
     {
     }
-    SPSCRingQueue( SPSCRingQueue &&a ) : mDel( a.mDel ), mCap( a.mCap ), mBuf( a.mBuf ), mPushPos( a.mPushPos ), mPopPos( a.mPopPos )
+    SPSCRingQueue( AllocT &&alloc = AllocT() ) : mAlloc( alloc )
+    {
+    }
+    SPSCRingQueue( SPSCRingQueue &&a ) : mAlloc( a.mAlloc ), mCap( a.mCap ), mBuf( a.mBuf ), mPushPos( a.mPushPos ), mPopPos( a.mPopPos )
     {
         a.mBuf = nullptr;
         a.mPushPos = 0;
         a.mPopPos = 0;
+    }
+    bool Init( size_t cap, AllocT &&alloc = AllocT() )
+    {
+        mAlloc = std::move( alloc );
+        mCap = cap;
+        mBuf = mAlloc.allocate( cap );
+        return mBuf;
     }
     ~SPSCRingQueue()
     {
@@ -53,7 +63,7 @@ public:
     {
         if ( mBuf )
         {
-            mDel( mBuf );
+            mAlloc.deallocate( mBuf, mCap );
             mBuf = nullptr;
         }
     }

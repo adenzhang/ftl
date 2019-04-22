@@ -61,14 +61,10 @@ public:
 
     MPSCBoundedQueue( size_t cap, allocator_type &&alloc = allocator_type() ) : mAlloc( alloc ), mCap( cap )
     {
-        mBuf = mAlloc.allocate( cap );
-        if ( !mBuf )
-            return;
-        for ( size_t i = 0; i < cap; ++i )
-        {
-            new ( &mBuf[i].seq() ) seq_type();
-            mBuf[i].seq() = 0;
-        }
+        Init( cap );
+    }
+    MPSCBoundedQueue( allocator_type &&alloc = allocator_type() ) : mAlloc( alloc ), mCap( 0 )
+    {
     }
     ~MPSCBoundedQueue()
     {
@@ -84,8 +80,22 @@ public:
     MPSCBoundedQueue( const MPSCBoundedQueue & ) = delete;
     MPSCBoundedQueue &operator=( const MPSCBoundedQueue & ) = delete;
 
+    bool Init( size_t cap )
+    {
+        mCap = cap;
+        mBuf = mAlloc.allocate( cap );
+        if ( !mBuf )
+            return false;
+        for ( size_t i = 0; i < cap; ++i )
+        {
+            new ( &mBuf[i].seq() ) seq_type();
+            mBuf[i].seq() = 0;
+        }
+        return true;
+    }
+
     template<class... Args>
-    bool push( Args... args )
+    bool push( Args &&... args )
     {
         for ( ;; )
         {
@@ -110,6 +120,10 @@ public:
         }
     }
 
+    bool pop_back( T *buf = nullptr )
+    {
+        return pop( buf );
+    }
     // buf: uninitialized memory
     bool pop( T *buf = nullptr )
     {

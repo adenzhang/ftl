@@ -40,12 +40,12 @@ void SetThreadAffinity( std::thread &th, size_t i )
 
 // Each thread has a ring queue
 // for low-latency usage
-template<class TaskT>
+template<class TaskT, class QueueType = ftl::SPSCRingQueue<TaskT>>
 class ThreadArray
 {
 public:
     using Task = TaskT;
-    using TaskQueue = ftl::SPSCRingQueue<Task>;
+    using TaskQueue = QueueType;
     using QueuePtr = std::unique_ptr<TaskQueue>;
 
 protected:
@@ -62,12 +62,13 @@ public:
         std::allocator<Task> alloc;
         for ( size_t i = 0; i < nQueues; ++i )
         {
-            if ( auto p = alloc.allocate( nQueueSizePerThread ) )
+            //            if ( auto p = alloc.allocate( nQueueSizePerThread ) )
             {
-                mQueues.push_back( QueuePtr( new TaskQueue( nQueueSizePerThread, p ) ) );
+                mQueues.push_back( QueuePtr( new TaskQueue( nQueueSizePerThread ) ) );
                 mThreads.push_back( std::thread( [&, qid = i] {
                     auto &q = *mQueues[qid];
                     mActiveThreads.fetch_add( 1 );
+                    //                    std::cout << "inited:" << qid << std::endl;
                     for ( ;; )
                     {
                         Task task;
@@ -88,8 +89,8 @@ public:
                 } ) );
                 SetThreadAffinity( mThreads[i], i );
             }
-            else
-                return false;
+            //            else
+            //                return false;
         }
         return true;
     }
