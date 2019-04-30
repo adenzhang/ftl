@@ -5,8 +5,8 @@
 
 // class Generator
 //      - OptionalOrPointer next()
-//      - Iterator begin()
-//      - Iterator end()
+//      - iterator begin()
+//      - iterator end()
 //
 // Constructed by functor Lambda. Lambda::oprator() returns optional<T> or T*
 template<class Lambda, class T = std::remove_reference_t<decltype( *std::declval<Lambda>()() )>>
@@ -14,54 +14,41 @@ class Generator
 {
 public:
     using OptionalOrPointer = std::remove_reference_t<decltype( std::declval<Lambda>()() )>;
-    struct Iterator
+    struct iterator
     {
         Generator *cont = nullptr;
         OptionalOrPointer data;
 
-        Iterator( Generator *c = nullptr, OptionalOrPointer d = OptionalOrPointer{} ) : cont( c ), data( d )
+        iterator( Generator *c = nullptr, OptionalOrPointer d = OptionalOrPointer{} ) : cont( c ), data( d )
         {
         }
 
-        bool operator==( const Iterator &a ) const
+        bool operator==( const iterator &a ) const
         {
             return is_end() && a.is_end();
         }
-        bool operator!=( const Iterator &a ) const
+        bool operator!=( const iterator &a ) const
         {
             return !this->operator==( a );
         }
 
-        T *operator->() const
+        OptionalOrPointer operator->() const
         {
-            return data ? &( *data ) : nullptr;
+            return data;
         }
-        T *operator->()
+        auto &operator*() const
         {
-            return data ? &( *data ) : nullptr;
+            return *data;
         }
-        T &operator*() const
-        {
-            if ( data )
-                return ( *data );
-            else
-                throw std::bad_cast();
-        }
-        T &operator*()
-        {
-            if ( data )
-                return ( *data );
-            else
-                throw std::bad_cast();
-        }
-        Iterator &operator++()
+
+        iterator &operator++()
         {
             data = cont->next();
             return *this;
         }
-        Iterator operator++( int )
+        iterator operator++( int )
         {
-            Iterator tmp{cont, std::move( data )};
+            iterator tmp{cont, std::move( data )};
             data = cont->next();
             return std::move( tmp );
         }
@@ -81,13 +68,13 @@ public:
     Generator &operator=( const Generator &a ) = default;
     Generator &operator=( Generator &&a ) = default;
 
-    Iterator begin()
+    iterator begin()
     {
-        return Iterator{this, lambda()};
+        return iterator{this, lambda()};
     }
-    Iterator end()
+    iterator end()
     {
-        return Iterator{this};
+        return iterator{this};
     }
 
     OptionalOrPointer next()
@@ -98,6 +85,7 @@ public:
 protected:
     Lambda lambda;
 };
+
 
 template<class Iter>
 auto make_generator_iter( Iter itBegin, Iter itEnd )
