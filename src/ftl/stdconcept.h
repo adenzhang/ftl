@@ -89,9 +89,9 @@ struct hash<std::tuple<Args...>>
 
 #define FTL_HAS_MEMBER( member, name ) FTL_CHECK_EXPR( name, ::std::declval<T>().member )
 
-#define FTL_IS_COMPATIBLE_FUNC_ARG( func, name ) FTL_CHECK_EXPR( name, func(::std::declval<T>() ) )
+#define FTL_IS_COMPATIBLE_FUNC_ARG( func, name ) FTL_CHECK_EXPR( name, func( ::std::declval<T>() ) )
 
-#define FTL_IS_COMPATIBLE_FUNC_ARG_LVALUE( func, name ) FTL_CHECK_EXPR( name, func(::std::declval<T &>() ) )
+#define FTL_IS_COMPATIBLE_FUNC_ARG_LVALUE( func, name ) FTL_CHECK_EXPR( name, func( ::std::declval<T &>() ) )
 
 #define FTL_CHECK_EXPR_TYPE( traitsName, ... )                                                                                                      \
     template<typename R, typename U = void>                                                                                                         \
@@ -345,5 +345,47 @@ std::string GetTypeNameString( void )
     return std::string( s, strlen( s ) - internal::GetTypeNameHelper<T>::BACK_SIZE );
 }
 
+////=======================================================
+////              macros for creating containers with initial values
+/// E.g     auto vec = VEC_T( int, 1, 2, 3, 5 );
+///    auto m = MAP_T( int, int, {1, 2}, {3, 5} );
+///
+////=======================================================
+
+#define VEC_T( type, ... )                                                                                                                          \
+    std::vector<type>                                                                                                                               \
+    {                                                                                                                                               \
+        __VA_ARGS__                                                                                                                                 \
+    }
+
+#define LIST_T( type, ... )                                                                                                                         \
+    std::list<type>                                                                                                                                 \
+    {                                                                                                                                               \
+        __VA_ARGS__                                                                                                                                 \
+    }
+
+#define SET_T( type, ... )                                                                                                                          \
+    std::set<type>                                                                                                                                  \
+    {                                                                                                                                               \
+        __VA_ARGS__                                                                                                                                 \
+    }
+
+#define HSET_T( type, ... )                                                                                                                         \
+    std::unordered_set<type>                                                                                                                        \
+    {                                                                                                                                               \
+        __VA_ARGS__                                                                                                                                 \
+    }
+
+#define MAP_T( Ktype, Vtype, ... )                                                                                                                  \
+    std::map<Ktype, Vtype>                                                                                                                          \
+    {                                                                                                                                               \
+        __VA_ARGS__                                                                                                                                 \
+    }
+
+#define HMAP_T( Ktype, Vtype, ... )                                                                                                                 \
+    std::unordered_map<Ktype, VType>                                                                                                                \
+    {                                                                                                                                               \
+        __VA_ARGS__                                                                                                                                 \
+    }
 
 } // namespace ftl
