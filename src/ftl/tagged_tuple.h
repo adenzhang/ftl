@@ -90,6 +90,17 @@ struct ValueList
 {
 };
 
+template<char... Values>
+struct CharList
+{
+    static const char *c_str()
+    {
+        static const char str[]{Values..., '\0'};
+        return str;
+    }
+};
+
+
 template<typename T, typename... Types>
 static constexpr bool unique_types_v = find_type_index<false, T, Types...>() >= sizeof...( Types );
 
@@ -99,8 +110,27 @@ struct TypeList
     static constexpr auto size = sizeof...( Types );
 };
 
+template<size_t n, typename Head, typename... Tail>
+struct NthType
+{
+    using type = typename NthType<n - 1, Tail...>::type;
+};
+
+template<typename Head, typename... Tail>
+struct NthType<0, Head, Tail...>
+{
+    using type = Head;
+};
+
+template<size_t n, typename... Types>
+using NthType_t = typename NthType<n, Types...>::type;
+
 template<auto... Values>
 static constexpr ValueList<Values...> valueList{};
+
+
+template<char... Values>
+static constexpr CharList<Values...> valueCharList{};
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////
@@ -113,7 +143,7 @@ static constexpr ValueList<Values...> valueList{};
 template<class C, C... CHARS>
 constexpr auto operator"" _t() noexcept
 {
-    return ValueList<CHARS...>{};
+    return CharList<CHARS...>{};
 }
 
 /// @brief Get a referene to Tag (ValueList) value from a string literal.
@@ -121,7 +151,7 @@ constexpr auto operator"" _t() noexcept
 template<class C, C... CHARS>
 constexpr auto &operator"" _tref() noexcept
 {
-    return valueList<CHARS...>;
+    return valueCharList<CHARS...>;
 }
 
 template<class TagT, class ValueT>
@@ -139,6 +169,13 @@ struct TaggedValue
 
     ValueType value;
 };
+
+template<class TagT, class ValueT>
+std::ostream &operator<<( std::ostream &os, const TaggedValue<TagT, ValueT> &value )
+{
+    os << TagT::c_str() << ":" << value.value;
+    return os;
+}
 
 template<class T>
 using RemoveCVRef_t = std::remove_cv_t<std::remove_reference_t<T>>;
@@ -169,7 +206,7 @@ struct TaggedTuple
     TaggedTuple() = default;
 
     template<class... ValueTypes>
-    TaggedTuple( ValueTypes &&... values ) : tup_{std::forward<ValueTypes>( values )...}
+    explicit TaggedTuple( ValueTypes &&... values ) : tup_{std::forward<ValueTypes>( values )...}
     {
     }
 
@@ -280,8 +317,51 @@ struct TaggedTuple
         return ReturnType{get<typename TaggedTypes::TagType>()..., another.template get<typename TaggedTypes1::TagType>()...};
     }
 
+    /// @brief for each element, call Function func(Tag, Value)
+    template<class F>
+    void for_each( const F &func )
+    {
+        for_each_( func, std::make_index_sequence<sizeof...( TaggedTypes )>(), tup_ );
+    }
+
+    template<class F>
+    void for_each( const F &func ) const
+    {
+        for_each_( func, std::make_index_sequence<sizeof...( TaggedTypes )>(), tup_ );
+    }
+
+    std::ostream &print_json( std::ostream &os ) const
+    {
+        os << "{";
+        for_each( [&os]( auto tag, const auto &value ) {
+            using Tag = decltype( tag );
+            constexpr size_t idx = find_type_index<true, Tag, typename TaggedTypes::TagType...>();
+            if constexpr ( idx != 0 )
+            {
+                os << ",";
+            }
+            os << Tag::c_str() << ":" << value;
+        } );
+        os << "}";
+        return os;
+    }
+
 private:
+    template<class F, std::size_t... Is, class Tuple>
+    static void for_each_( const F &func, std::index_sequence<Is...>, Tuple &&tup )
+    {
+        using expander = int[];
+        (void)expander{0, ( (void)func( NthType_t<Is, typename TaggedTypes::TagType...>{}, std::get<Is>( tup ) ), 0 )...};
+    }
+
+
     ValueTuple tup_;
 };
+
+template<class T, class... TaggedTypes>
+std::ostream &operator<<( std::ostream &os, const TaggedTuple<T, TaggedTypes...> &tup )
+{
+    return tup.print_json( os );
+}
 
 } // namespace ftl
