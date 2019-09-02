@@ -98,9 +98,10 @@ scoped_stream_redirect<IOType, std::stringstream> make_scoped_stream_redirect( I
 namespace serialization
 {
 
+    /// @brief print quoted string
     inline std::ostream &operator<<( std::ostream &os, const std::string &s )
     {
-        return os << '\"' << s << '\"';
+        return os << '\"' << s.c_str() << '\"';
     }
     template<typename Iter>
     std::ostream &printIterator( std::ostream &os, Iter itBegin, Iter itEnd, const char sep = ',', const char *brackets = "[]" )

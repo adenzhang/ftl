@@ -18,6 +18,7 @@
 #pragma once
 
 #include <tuple>
+#include <ftl/container_serialization.h>
 
 /***********************************************
  *
@@ -145,6 +146,8 @@ static constexpr CharList<Values...> valueCharList{};
 ///
 //////////////////////////////////////////////////////////////////////////////////////////////
 
+using namespace serialization;
+
 /// @brief Get a Tag (ValueList) value from a string literal.
 template<class C, C... CHARS>
 constexpr auto operator"" _t() noexcept
@@ -238,6 +241,12 @@ struct TaggedTuple
     }
 
     template<class Tag>
+    auto &&get() &&
+    {
+        return std::get<find_type_index<true, Tag, typename TaggedTypes::TagType...>()>( tup_ );
+    }
+
+    template<class Tag>
     auto &operator[]( Tag )
     {
         return get<Tag>();
@@ -257,6 +266,12 @@ struct TaggedTuple
 
     template<size_t idx>
     const auto &at() const
+    {
+        return std::get<idx>( tup_ );
+    }
+
+    template<size_t idx>
+    auto &&at() &&
     {
         return std::get<idx>( tup_ );
     }
@@ -313,25 +328,25 @@ struct TaggedTuple
 
     /// @brief Reference to const subset of TaggedTuple.
     template<class... Tags>
-    auto refsub( Tags... ) const
+    auto ref( Tags... ) const
     {
         return get_ref_tuple<Tags...>();
     }
 
     /// @brief Reference to subset of TaggedTuple.
     template<class... Tags>
-    auto refsub( Tags... )
+    auto ref( Tags... )
     {
         return get_ref_tuple<Tags...>();
     }
 
     /// @brief Reference to the whole TaggedTuple
-    auto refsub()
+    auto ref()
     {
         return get_ref_tuple<typename TaggedTypes::TagType...>();
     }
 
-    auto refsub() const
+    auto ref() const
     {
         return get_ref_tuple<typename TaggedTypes::TagType...>();
     }
@@ -366,17 +381,28 @@ struct TaggedTuple
         for_each_( func, std::make_index_sequence<sizeof...( TaggedTypes )>(), tup_ );
     }
 
-    std::ostream &print_json( std::ostream &os ) const
+    /// @brief For each element, call Function func(Tag, Value, arg)
+    template<size_t idx = 0, class F, class Arg1, class... Args>
+    inline void for_each_arg( const F &func, Arg1 &&arg1, Args &&... args )
+    {
+        func( NthType_t<idx, typename TaggedTypes::TagType...>{}, at<idx>(), std::forward<Arg1>( arg1 ) );
+
+        if constexpr ( sizeof...( args ) != 0 )
+        {
+            for_each_arg<idx + 1>( func, std::forward<Args>( args )... );
+        }
+    }
+
+    template<class Stream>
+    Stream &print_json( Stream &os ) const
     {
         os << "{";
         for_each( [&os]( auto tag, const auto &value ) {
-            using Tag = decltype( tag );
-            constexpr size_t idx = find_type_index<true, Tag, typename TaggedTypes::TagType...>();
-            if constexpr ( idx != 0 )
+            if constexpr ( !std::is_same_v<decltype( tag ), NthType_t<0, typename TaggedTypes::TagType...>> )
             {
                 os << ",";
             }
-            os << Tag::c_str() << ":" << value;
+            os << decltype( tag )::c_str() << ":" << value;
         } );
         os << "}";
         return os;
@@ -413,7 +439,16 @@ private:
 template<class T, class... TaggedTypes>
 std::ostream &operator<<( std::ostream &os, const TaggedTuple<T, TaggedTypes...> &tup )
 {
-    return tup.print_json( os );
+    os << "{";
+    tup.for_each( [&os]( auto tag, const auto &value ) {
+        if constexpr ( !std::is_same_v<decltype( tag ), typename T::TagType> )
+        {
+            os << ",";
+        }
+        os << decltype( tag )::c_str() << ":" << value;
+    } );
+    os << "}";
+    return os;
 }
 
 } // namespace ftl
