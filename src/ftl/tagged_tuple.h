@@ -22,27 +22,34 @@
 /***********************************************
  *
  *
-
 void test_tagged_tuple()
 {
     ValueList<'i'> vl{};
     TaggedTuple<Tagged<"name"_tref, std::string>, TaggedType<decltype( "id"_t ), int>, Tagged<"score"_tref, double>> taggedTup;
-    taggedTup.get( "name"_t ) = "asdf";
-    taggedTup.get( "id"_t ) = 23;
+    TaggedTuple<Tagged<"age"_tref, int>, Tagged<"address"_tref, std::string>> info{10, "New York"};
+    taggedTup["name"_t] = "asdf";
+    taggedTup["id"_t] = 23;
 
-    auto subtup = taggedTup.sub( "name"_t, "id"_t );
+    auto subtup = taggedTup.clone( "name"_t, "id"_t );
     subtup["name"_t] += "+23";
 
     auto &constup = taggedTup;
-    auto subreftup = constup.subref( "name"_t, "id"_t );
+    auto subreftup = constup.refsub( "name"_t, "id"_t );
     subreftup["name"_t] = "abc";
 
-    std::cout << "name:" << taggedTup["name"_t] << ",  subtuple same name:" << subtup["name"_t] << std::endl;
+    std::cout << "name:" << taggedTup["name"_t] << ",  subtuple same name:" << subtup["name"_t] << subtup.ref_tagged_value_at<0>() << std::endl;
 
-    auto subsubref = subreftup.subref( "name"_t, "id"_t );
+    auto subsubref = subreftup.refsub( "name"_t, "id"_t );
     subsubref["name"_t] = "subsubref";
 
+    auto refinfo = info.refsub();
+    auto combined = subreftup + refinfo; // concat TaggedTuples.
+
     std::cout << "name:" << taggedTup["name"_t] << ",  subtuple same name:" << subtup["name"_t] << std::endl;
+
+    std::cout << refinfo << std::endl;
+
+    std::cout << "Combined: " << combined << std::endl;
 }
  *
  *
@@ -99,7 +106,6 @@ struct CharList
         return str;
     }
 };
-
 
 template<typename T, typename... Types>
 static constexpr bool unique_types_v = find_type_index<false, T, Types...>() >= sizeof...( Types );
@@ -258,55 +264,79 @@ struct TaggedTuple
     template<size_t i>
     auto tagged_value_at() const
     {
-        using TagType = RemoveCVRef_t<decltype( std::get<i>( std::declval<TagTuple>() ) )>;
-        using ValueType = std::remove_reference_t<decltype( std::get<i>( std::declval<ValueTuple>() ) )>;
+        using TagType = NthType_t<i, typename TaggedTypes::TagType...>;
+        using ValueType = NthType_t<i, typename TaggedTypes::ValueType...>;
         return TaggedValue<TagType, ValueType>{this->at<i>()};
     }
 
     template<size_t i>
-    auto tagged_value_ref_at()
+    auto clone_tagged_value_at() const
     {
-        using TagType = RemoveCVRef_t<decltype( std::get<i>( std::declval<TagTuple>() ) )>;
+        using TagType = NthType_t<i, typename TaggedTypes::TagType...>;
+        using ValueType = std::remove_reference_t<NthType_t<i, typename TaggedTypes::ValueType...>>;
+        return TaggedValue<TagType, ValueType>{this->at<i>()};
+    }
+
+    template<size_t i>
+    auto ref_tagged_value_at()
+    {
+        using TagType = NthType_t<i, typename TaggedTypes::TagType...>;
         using ValueType = std::remove_reference_t<decltype( std::get<i>( std::declval<ValueTuple>() ) )> &;
         return TaggedValue<TagType, ValueType>{this->at<i>()};
     }
 
     template<size_t i>
-    auto tagged_value_ref_at() const
+    auto ref_tagged_value_at() const
     {
-        using TagType = RemoveCVRef_t<decltype( std::get<i>( std::declval<TagTuple>() ) )>;
+        using TagType = NthType_t<i, typename TaggedTypes::TagType...>;
         using ValueType = const std::remove_reference_t<decltype( std::get<i>( std::declval<ValueTuple>() ) )> &;
         return TaggedValue<TagType, ValueType>{this->at<i>()};
     }
 
-    /// @brief Subset of TaggedTuple
+    /// @brief Shaddow copy subset of TaggedTuple. If ValueType is referencce type, returned ValueType is still reference type.
     template<class... Tags>
-    auto sub( Tags... ) const
+    auto copy( Tags... ) const
     {
         using ReturnType = TaggedTuple<decltype( tagged_value_at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>() )...>;
 
         return ReturnType{at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>()...};
     }
 
-    /// @brief Reference to const subset of TaggedTuple
+    /// @brief Clone (deep copy) subset of TaggedTuple. If ValueType is referencce type, returned ValueType is the referenced type.
     template<class... Tags>
-    auto subref( Tags... ) const
+    auto clone( Tags... ) const
     {
-        using ReturnType = TaggedTuple<decltype( tagged_value_ref_at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>() )...>;
+        using ReturnType = TaggedTuple<decltype( clone_tagged_value_at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>() )...>;
 
         return ReturnType{at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>()...};
     }
 
-    /// @brief Reference to  subset of TaggedTuple
+    /// @brief Reference to const subset of TaggedTuple.
     template<class... Tags>
-    auto subref( Tags... )
+    auto refsub( Tags... ) const
     {
-        using ReturnType = TaggedTuple<decltype( tagged_value_ref_at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>() )...>;
-
-        return ReturnType{at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>()...};
+        return get_ref_tuple<Tags...>();
     }
 
-    /// @brief Concatinate with another TaggedTuple
+    /// @brief Reference to subset of TaggedTuple.
+    template<class... Tags>
+    auto refsub( Tags... )
+    {
+        return get_ref_tuple<Tags...>();
+    }
+
+    /// @brief Reference to the whole TaggedTuple
+    auto refsub()
+    {
+        return get_ref_tuple<typename TaggedTypes::TagType...>();
+    }
+
+    auto refsub() const
+    {
+        return get_ref_tuple<typename TaggedTypes::TagType...>();
+    }
+
+    /// @brief Concat with another TaggedTuple
     /// @pre No TagType conflicts.
     template<class... TaggedTypes1>
     auto concat( const TaggedTuple<TaggedTypes1...> &another ) const
@@ -314,10 +344,16 @@ struct TaggedTuple
         static_assert( unique_types_v<typename TaggedTypes::TagType..., typename TaggedTypes1::TagType...>, "Type Conflicts!" );
 
         using ReturnType = TaggedTuple<TaggedTypes..., TaggedTypes1...>;
-        return ReturnType{get<typename TaggedTypes::TagType>()..., another.template get<typename TaggedTypes1::TagType>()...};
+        return ReturnType{std::tuple_cat( tup_, another.get_value_tuple() )};
     }
 
-    /// @brief for each element, call Function func(Tag, Value)
+    template<class... TaggedTypes1>
+    auto operator+( const TaggedTuple<TaggedTypes1...> &another ) const
+    {
+        return concat( another );
+    }
+
+    /// @brief For each element, call Function func(Tag, Value)
     template<class F>
     void for_each( const F &func )
     {
@@ -354,9 +390,25 @@ private:
         (void)expander{0, ( (void)func( NthType_t<Is, typename TaggedTypes::TagType...>{}, std::get<Is>( tup ) ), 0 )...};
     }
 
+    template<class... Tags>
+    auto get_ref_tuple()
+    {
+        using ReturnType = TaggedTuple<decltype( ref_tagged_value_at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>() )...>;
+
+        return ReturnType{at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>()...};
+    }
+
+    template<class... Tags>
+    auto get_ref_tuple() const
+    {
+        using ReturnType = TaggedTuple<decltype( ref_tagged_value_at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>() )...>;
+
+        return ReturnType{at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>()...};
+    }
 
     ValueTuple tup_;
 };
+
 
 template<class T, class... TaggedTypes>
 std::ostream &operator<<( std::ostream &os, const TaggedTuple<T, TaggedTypes...> &tup )
