@@ -212,6 +212,25 @@ struct TaggedTuple
     using TagTuple = std::tuple<typename TaggedTypes::TagType...>;
     using ValueTuple = std::tuple<typename TaggedTypes::ValueType...>;
 
+
+    template<class... Tags>
+    using SubTupleType = TaggedTuple<
+            TaggedType<Tags, NthType_t<find_type_index<true, Tags, typename TaggedTypes::TagType...>(), typename TaggedTypes::ValueType...>>...>;
+
+    template<class... Tags>
+    using SubNoRefTupleType = TaggedTuple<TaggedType<Tags,
+                                                     NthType_t<find_type_index<true, Tags, typename TaggedTypes::TagType...>(),
+                                                               std::remove_reference_t<typename TaggedTypes::ValueType>...>>...>;
+    template<class... Tags>
+    using SubRefTupleType = TaggedTuple<
+            TaggedType<Tags, NthType_t<find_type_index<true, Tags, typename TaggedTypes::TagType...>(), typename TaggedTypes::ValueType &...>>...>;
+
+    template<class... Tags>
+    using SubConstRefTupleType = TaggedTuple<
+            TaggedType<Tags,
+                       NthType_t<find_type_index<true, Tags, typename TaggedTypes::TagType...>(), const typename TaggedTypes::ValueType &...>>...>;
+
+
     TaggedTuple() = default;
 
     template<class... ValueTypes>
@@ -312,7 +331,7 @@ struct TaggedTuple
     template<class... Tags>
     auto copy( Tags... ) const
     {
-        using ReturnType = TaggedTuple<decltype( tagged_value_at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>() )...>;
+        using ReturnType = SubTupleType<Tags...>;
 
         return ReturnType{at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>()...};
     }
@@ -321,7 +340,7 @@ struct TaggedTuple
     template<class... Tags>
     auto clone( Tags... ) const
     {
-        using ReturnType = TaggedTuple<decltype( clone_tagged_value_at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>() )...>;
+        using ReturnType = SubNoRefTupleType<Tags...>;
 
         return ReturnType{at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>()...};
     }
@@ -419,7 +438,7 @@ private:
     template<class... Tags>
     auto get_ref_tuple()
     {
-        using ReturnType = TaggedTuple<decltype( ref_tagged_value_at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>() )...>;
+        using ReturnType = SubRefTupleType<Tags...>;
 
         return ReturnType{at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>()...};
     }
@@ -427,7 +446,7 @@ private:
     template<class... Tags>
     auto get_ref_tuple() const
     {
-        using ReturnType = TaggedTuple<decltype( ref_tagged_value_at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>() )...>;
+        using ReturnType = SubConstRefTupleType<Tags...>;
 
         return ReturnType{at<find_type_index<true, Tags, typename TaggedTypes::TagType...>()>()...};
     }
