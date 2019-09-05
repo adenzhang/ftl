@@ -23,9 +23,15 @@
 /***********************************************
  *
  *
+
 void test_tagged_tuple()
 {
-    ValueList<'i'> vl{};
+
+    std::cout << "false:" << can_construct_dataframe<std::string, int>() << std::endl;
+    std::cout << "false:" << can_construct_dataframe<std::string, std::wstring>() << std::endl;
+    std::cout << "true:" << can_construct_dataframe<std::vector<int>, std::vector<std::string>>() << std::endl;
+    std::cout << "true:" << can_construct_dataframe<std::vector<int>, std::deque<std::string>>() << std::endl;
+
     TaggedTuple<Tagged<"name"_tref, std::string>, TaggedType<decltype( "id"_t ), int>, Tagged<"score"_tref, double>> taggedTup;
     TaggedTuple<Tagged<"age"_tref, int>, Tagged<"address"_tref, std::string>> info{10, "New York"};
     taggedTup["name"_t] = "asdf";
@@ -35,16 +41,18 @@ void test_tagged_tuple()
     subtup["name"_t] += "+23";
 
     auto &constup = taggedTup;
-    auto subreftup = constup.refsub( "name"_t, "id"_t );
+    auto subreftup = constup.ref( "name"_t, "id"_t );
     subreftup["name"_t] = "abc";
 
     std::cout << "name:" << taggedTup["name"_t] << ",  subtuple same name:" << subtup["name"_t] << subtup.ref_tagged_value_at<0>() << std::endl;
 
-    auto subsubref = subreftup.refsub( "name"_t, "id"_t );
+    auto subsubref = subreftup.ref( "name"_t, "id"_t );
     subsubref["name"_t] = "subsubref";
 
-    auto refinfo = info.refsub();
+    auto refinfo = info.ref();
     auto combined = subreftup + refinfo; // concat TaggedTuples.
+
+    info["address"_t] = "New Jersey";
 
     std::cout << "name:" << taggedTup["name"_t] << ",  subtuple same name:" << subtup["name"_t] << std::endl;
 
@@ -52,6 +60,51 @@ void test_tagged_tuple()
 
     std::cout << "Combined: " << combined << std::endl;
 }
+
+void test_dataframe()
+{
+    DataFrame<Tagged<"name"_tref, std::string>, Tagged<"id"_tref, int>, Tagged<"score"_tref, double>> df;
+
+    df.append_row( std::string( "Jason" ), 2343, 2.3 );
+    df.append_row( "Tom A", 123, 849 );
+
+    std::cout << "df :" << df << std::endl;
+
+    df.rowref( 1 )["name"_t] = "Tom B";
+    df["name"_t][0] = "Jason B";
+
+    std::cout << "df: " << df << std::endl;
+
+    auto subref = df.ref( "name"_t, "id"_t );
+
+    subref["id"_t][1] = 111;
+
+    std::cout << "ref df: " << subref << std::endl;
+
+    std::cout << "df id changed: " << df << std::endl;
+
+
+    DataFrame<Tagged<"age"_tref, int>, Tagged<"address"_tref, std::string>> df1( std::vector<int>{10, 20},
+                                                                                 std::vector<std::string>{"address NY", "address NJ"} );
+
+    auto df1ref = df1.ref();
+
+    auto df2 = df + df1ref; // df2 reference to df1, copy of df.
+
+    df1["address"_t][1] = "address CT";
+
+    std::cout << "df1ref :" << df1ref << std::endl;
+    std::cout << "combined df2 address[1] is changed to CT :" << df2 << std::endl;
+
+    df2.append_row( "Sam C", 234, 10, 100, "address CC" );
+
+    std::cout << "combined df2 3 rows:" << df2 << std::endl;
+
+    std::cout << "original df1 3 rows:" << df1 << std::endl;
+
+    std::cout << "df1 is still 2 row: no change:" << df << std::endl;
+}
+
  *
  *
  * ********************************************/
@@ -163,6 +216,31 @@ constexpr auto &operator"" _tref() noexcept
     return valueCharList<CHARS...>;
 }
 
+
+enum class ValueRefType
+{
+    AsIs,
+    NoRef,
+    Ref,
+    ConstRef
+};
+
+template<ValueRefType refType, class ValueType>
+using RefValueType_t =
+        std::conditional_t<refType == ValueRefType::Ref,
+                           std::remove_reference_t<ValueType> &,
+                           std::conditional_t<refType == ValueRefType::ConstRef,
+                                              const std::remove_reference_t<ValueType> &,
+                                              std::conditional_t<refType == ValueRefType::NoRef, std::remove_reference_t<ValueType>, ValueType>>>;
+
+template<typename T>
+static constexpr ValueRefType RefValueType_v =
+        std::is_same_v<T, RefValueType_t<ValueRefType::ConstRef, T>>
+                ? ValueRefType::ConstRef
+                : ( std::is_same_v<T, RefValueType_t<ValueRefType::Ref, T>>
+                            ? ValueRefType::Ref
+                            : ( std::is_same_v<T, RefValueType_t<ValueRefType::NoRef, T>> ? ValueRefType::NoRef : ValueRefType::AsIs ) );
+
 template<class TagT, class ValueT>
 struct TaggedType
 {
@@ -204,11 +282,44 @@ auto PrependTuple_( TaggedTuple<Args...> ) -> TaggedTuple<TaggedType, Args...>;
 template<class T, class Tuple>
 using PrependTuple_t = decltype( PrependTuple_<T>( Tuple{} ) );
 
+template<class U>
+struct is_random_accessible_container
+{
+    template<class T>
+    static auto check( int )
+            -> decltype( std::declval<typename T::value_type>, std::declval<T>()[0], std::declval<T>().begin(), std::declval<T>().end(), bool() );
+
+    template<class T>
+    static int check( ... );
+
+    template<class Char, class Traits>
+    static bool check_string( std::basic_string<Char, Traits> );
+
+    template<class Char, class Traits>
+    static bool check_string( std::basic_string_view<Char, Traits> );
+
+    template<class T>
+    static int check_string( T );
+
+    static constexpr bool is_ra_container = std::is_same_v<decltype( check<U>( 0 ) ), bool>;
+
+    static constexpr bool is_string = std::is_same_v<decltype( check_string( std::declval<U>() ) ), bool>;
+
+    static constexpr bool value = is_ra_container && !is_string;
+};
+
+template<class... Types>
+static constexpr bool can_construct_dataframe()
+{
+    return ( true && ... && is_random_accessible_container<RemoveCVRef_t<Types>>::value );
+}
+
 template<class... TaggedTypes>
 struct TaggedTuple
 {
     static_assert( unique_types_v<typename TaggedTypes::TagType...>, "Type Conflicts!" );
 
+    using this_type = TaggedTuple<TaggedTypes...>;
     using TagTuple = std::tuple<typename TaggedTypes::TagType...>;
     using ValueTuple = std::tuple<typename TaggedTypes::ValueType...>;
 
@@ -427,6 +538,289 @@ struct TaggedTuple
         return os;
     }
 
+    /////////////////////////////////////////////////////////////////////////////////////////////////
+    // DataFrame API
+    // @todo add static constexpr bool is_like_dataframe(), which returns true if all TaggedTypes::ValueType is like container.
+
+    static constexpr bool is_dataframe = can_construct_dataframe<RemoveCVRef_t<typename TaggedTypes::ValueType>...>();
+
+    struct df
+    {
+        template<class Tag>
+        using RowElemType = NthType_t<find_type_index<true, Tag, typename TaggedTypes::TagType...>(),
+                                      typename RemoveCVRef_t<typename TaggedTypes::ValueType>::value_type...>;
+
+        template<class... Tags>
+        using RowRefType = TaggedTuple<TaggedType<Tags, RefValueType_t<ValueRefType::Ref, RowElemType<Tags>>>...>;
+
+        template<class... Tags>
+        using RowType = TaggedTuple<TaggedType<Tags, RefValueType_t<ValueRefType::NoRef, RowElemType<Tags>>>...>;
+
+        template<class... Tags>
+        using RowConstRefType = TaggedTuple<TaggedType<Tags, RefValueType_t<ValueRefType::ConstRef, RowElemType<Tags>>>...>;
+
+        template<class TaggedTupleT>
+        struct RowView
+        {
+            static constexpr bool IsConst = std::is_const_v<TaggedTupleT>;
+
+            TaggedTupleT *dataframe_ = nullptr;
+            size_t idx_{0}; // row index
+
+            template<class Tag>
+            auto &get()
+            {
+                return dataframe_->template get<Tag>()[idx_];
+            }
+
+            template<class Tag>
+            auto &operator[]( Tag )
+            {
+                return get<Tag>();
+            }
+
+            RowView &operator++()
+            {
+                ++idx_;
+                return *this;
+            }
+
+            RowView &operator++( int )
+            {
+                RowView res{dataframe_, idx_};
+                ++idx_;
+                return res;
+            }
+
+            template<class... Tags>
+            auto rowref( Tags... tags ) const
+            {
+                return dataframe_->rowref( idx_, tags... );
+            }
+
+            template<class... Tags>
+            auto copy( Tags... tags ) const
+            {
+                return dataframe_->rowcopy( idx_, tags... );
+            }
+
+            bool is_end() const
+            {
+                return idx_ == dataframe_->size();
+            }
+        };
+    };
+
+    template<bool bDataFrame, class TaggedTupleT>
+    struct Iterator
+    {
+        using value_type = typename df::template RowView<TaggedTupleT>;
+        static constexpr bool IsConst = std::is_const_v<TaggedTupleT>;
+
+        Iterator( TaggedTupleT *dataframe = nullptr, size_t idx = 0 ) : value_{dataframe, idx}
+        {
+        }
+
+        value_type &operator*()
+        {
+            return value_;
+        }
+
+        value_type *operator->()
+        {
+            return &value_;
+        }
+
+        Iterator &operator++()
+        {
+            ++value_;
+            return *this;
+        }
+        Iterator operator++( int )
+        {
+            Iterator res = *this;
+
+            ++value_;
+            return res;
+        }
+
+    protected:
+        value_type value_;
+    };
+
+    template<class TaggedTupleT>
+    struct Iterator<false, TaggedTupleT>
+    {
+        Iterator( TaggedTupleT *, size_t )
+        {
+        }
+    };
+
+    using iterator = Iterator<is_dataframe, this_type>;
+    using const_iterator = Iterator<is_dataframe, const this_type>;
+
+    auto size() const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        return this->at<0>().size();
+    }
+    auto begin()
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        return iterator( this, 0 );
+    }
+
+    auto begin() const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        return const_iterator( this, 0 );
+    }
+
+    auto end()
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        return iterator( this, size() );
+    }
+    auto end() const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        return const_iterator( this, size() );
+    }
+
+    template<class... ValueType>
+    this_type &append_row( ValueType &&... values )
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        for_each_arg( []( auto, auto &&value, auto &&arg ) { value.insert( value.end(), std::forward<decltype( arg )>( arg ) ); },
+                      std::forward<ValueType>( values )... );
+        return *this;
+    }
+
+    template<class... Values>
+    void append_row( const std::tuple<Values...> &tup )
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        for_each( [&]( auto tag, auto &col ) {
+            constexpr size_t idx = find_type_index<true, decltype( tag ), typename TaggedTypes::TagType...>();
+            col.insert( col.end(), std::get<idx>( tup ) );
+        } );
+    }
+
+    void append_row( std::tuple<typename TaggedTypes::ValueType...> &&tup )
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        for_each( [&]( auto tag, auto &col ) {
+            constexpr size_t idx = find_type_index<true, decltype( tag ), typename TaggedTypes::TagType...>();
+            col.insert( col.end(), std::move( std::get<idx>( tup ) ) );
+        } );
+    }
+
+    /// @brief For each row call func( TagValue&&... )
+    template<class F, class... Tags>
+    void for_each_row( F &&func, Tags... tags )
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        for ( size_t i = 0, N = size(); i < N; ++i )
+        {
+            if constexpr ( sizeof...( Tags ) == 0 )
+                func( this->template get<typename TaggedTypes::TagType>()[i]... );
+            else
+                func( this->template get<Tags>()[i]... );
+        }
+    }
+    template<class F, class... Tags>
+    void for_each_row( F &&func, Tags... ) const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        for ( size_t i = 0, N = size(); i < N; ++i )
+        {
+            if constexpr ( sizeof...( Tags ) == 0 )
+                func( this->template get<typename TaggedTypes::TagType>()[i]... );
+            else
+                func( this->template get<Tags>()[i]... );
+        }
+    }
+
+    /// @brief For each row call func( size_t idx, TagValue&&... )
+    template<class F, class... Tags>
+    void enumerate_each_row( F &&func, Tags... )
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        for ( size_t i = 0, N = size(); i < N; ++i )
+        {
+            if constexpr ( sizeof...( Tags ) == 0 )
+                func( i, this->template get<typename TaggedTypes::TagType>()[i]... );
+            else
+                func( i, this->template get<Tags>()[i]... );
+        }
+    }
+    template<class F, class... Tags>
+    void enumerate_each_row( F &&func, Tags... ) const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        for ( size_t i = 0, N = size(); i < N; ++i )
+        {
+            for ( size_t i = 0, N = size(); i < N; ++i )
+            {
+                if constexpr ( sizeof...( Tags ) == 0 )
+                    func( i, this->template get<typename TaggedTypes::TagType>()[i]... );
+                else
+                    func( i, this->template get<Tags>()[i]... );
+            }
+        }
+    }
+
+    /// @brief Get TaggedTuple<Tag, Value&> at row idx.
+    template<class... Tags>
+    auto rowref( size_t idx, Tags... )
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        if constexpr ( sizeof...( Tags ) == 0 )
+        {
+            return typename df::template RowRefType<typename TaggedTypes::TagType...>( this->template get<typename TaggedTypes::TagType>()[idx]... );
+        }
+        else
+            return df::template RowRefType<Tags...>( this->template get<Tags>()[idx]... );
+    }
+    template<class... Tags>
+    auto rowref( size_t idx, Tags... ) const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        if constexpr ( sizeof...( Tags ) == 0 )
+        {
+            return typename df::template RowConstRefType<typename TaggedTypes::TagType...>(
+                    this->template get<typename TaggedTypes::TagType>()[idx]... );
+        }
+        else
+            return typename df::template RowConstRefType<Tags...>( this->template get<Tags>()[idx]... );
+    }
+    template<class... Tags>
+    auto rowcopy( size_t idx, Tags... ) const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        if constexpr ( sizeof...( Tags ) == 0 )
+            return typename df::template RowType<typename TaggedTypes::TagType...>( this->template get<typename TaggedTypes::TagType>()[idx]... );
+        else
+            return typename df::template RowType<Tags...>( this->template get<Tags>()[idx]... );
+    }
+
+    std::ostream &print_json_by_row( std::ostream &os ) const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        os << "[";
+
+        for ( size_t i = 0; i < size(); ++i )
+        {
+            if ( i > 0 )
+            {
+                os << ",";
+            }
+            os << rowref( i );
+        }
+        os << "]";
+        return os;
+    }
+
 private:
     template<class F, std::size_t... Is, class Tuple>
     static void for_each_( const F &func, std::index_sequence<Is...>, Tuple &&tup )
@@ -454,20 +848,31 @@ private:
     ValueTuple tup_;
 };
 
+template<class... TaggedTypes>
+using DataFrame = TaggedTuple<TaggedType<typename TaggedTypes::TagType, std::vector<RemoveCVRef_t<typename TaggedTypes::ValueType>>>...>;
+
 
 template<class T, class... TaggedTypes>
 std::ostream &operator<<( std::ostream &os, const TaggedTuple<T, TaggedTypes...> &tup )
 {
-    os << "{";
-    tup.for_each( [&os]( auto tag, const auto &value ) {
-        if constexpr ( !std::is_same_v<decltype( tag ), typename T::TagType> )
-        {
-            os << ",";
-        }
-        os << decltype( tag )::c_str() << ":" << value;
-    } );
-    os << "}";
-    return os;
+    if constexpr ( TaggedTuple<T, TaggedTypes...>::is_dataframe )
+    {
+        return tup.print_json_by_row( os );
+    }
+    else
+    {
+        return tup.print_json( os );
+    }
+    //    os << "{";
+    //    tup.for_each( [&os]( auto tag, const auto &value ) {
+    //        if constexpr ( !std::is_same_v<decltype( tag ), typename T::TagType> )
+    //        {
+    //            os << ",";
+    //        }
+    //        os << decltype( tag )::c_str() << ":" << value;
+    //    } );
+    //    os << "}";
+    //    return os;
 }
 
 } // namespace ftl
