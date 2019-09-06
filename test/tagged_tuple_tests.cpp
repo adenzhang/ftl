@@ -47,6 +47,8 @@ TEST_FUNC( tagged_tuple_tests )
     { // tagged_tuple_dataframe_tests
         DataFrame<Tagged<"name"_tref, std::string>, Tagged<"id"_tref, int>, Tagged<"score"_tref, double>> df;
 
+        df.reserve( 10 );
+
         df.append_row( std::string( "Jason" ), 2343, 2.3 );
         df.append_row( "Tom A", 123, 849 );
 
@@ -80,10 +82,13 @@ TEST_FUNC( tagged_tuple_tests )
 
         df2.append_row( "Sam C", 234, 10, 100, "address CC" );
 
+        REQUIRE( df2.aligned_size() == 3 );
         std::cout << "combined df2 3 rows:" << df2 << std::endl;
 
+        REQUIRE( df1.aligned_size() == 3 );
         std::cout << "original df1 3 rows:" << df1 << std::endl;
 
+        REQUIRE( df.aligned_size() == 2 );
         std::cout << "df1 is still 2 row: no change:" << df << std::endl;
 
 
@@ -91,6 +96,7 @@ TEST_FUNC( tagged_tuple_tests )
             DataFrame<Tagged<"name"_tref, std::string>, Tagged<"id"_tref, int>> df( std::vector<std::string>{"A", "B"}, std::vector<int>{1, 2} );
             df.stack( TaggedTuple<Tagged<"name"_tref, std::string>, Tagged<"age"_tref, int>, Tagged<"id"_tref, int>>{std::string( "C" ), 23, 3} );
 
+            REQUIRE( df.size() == 3 );
             std::cout << "stacked dataframe 3 rows:" << df << std::endl;
 
             DataFrame<Tagged<"name"_tref, std::string>, Tagged<"age"_tref, int>, Tagged<"id"_tref, int>> df1(
@@ -98,10 +104,12 @@ TEST_FUNC( tagged_tuple_tests )
 
             df.stack( df1 );
 
+            REQUIRE( df.size() == 5 );
             std::cout << "stacked dataframe 5 rows:" << df << std::endl;
 
             auto stacked_copy = df.stack( df1 );
 
+            REQUIRE( stacked_copy.size() == 7 );
             std::cout << "stacked copy dataframe 7 rows:" << stacked_copy << std::endl;
         }
     }

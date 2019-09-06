@@ -18,6 +18,7 @@
 #pragma once
 
 #include <tuple>
+#include <cassert>
 #include <ftl/container_serialization.h>
 
 /***********************************************
@@ -684,6 +685,11 @@ struct TaggedTuple
             {
                 return idx_ == dataframe_->size();
             }
+
+            size_t get_index() const
+            {
+                return idx_;
+            }
         };
     };
 
@@ -735,6 +741,29 @@ struct TaggedTuple
     using iterator = Iterator<is_dataframe, this_type>;
     using const_iterator = Iterator<is_dataframe, const this_type>;
 
+    auto begin()
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        return iterator( this, 0 );
+    }
+
+    auto begin() const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        return const_iterator( this, 0 );
+    }
+
+    auto end()
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        return iterator( this, size() );
+    }
+    auto end() const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        return const_iterator( this, size() );
+    }
+
     /// @brief Get the min/aligned size of columns.
     template<class... Tags>
     size_t aligned_size( Tags... ) const
@@ -773,27 +802,135 @@ struct TaggedTuple
         return this->at<0>().size();
     }
 
-    auto begin()
+    /// @brief Reserve columns.
+    template<class... Tags>
+    void reserve( size_t n, Tags... )
     {
         static_assert( is_dataframe, "Not a DataFrame!" );
-        return iterator( this, 0 );
+        if constexpr ( sizeof...( Tags ) == 0 )
+        {
+            ( get<typename TaggedTypes::TagType>().reserve( n ), ... );
+        }
+        else
+        {
+            ( get<Tags>().reserve( n ), ... );
+        }
     }
 
-    auto begin() const
+    /// @brief Reserve columns.
+    template<class... Tags>
+    void resize( size_t n, Tags... )
     {
         static_assert( is_dataframe, "Not a DataFrame!" );
-        return const_iterator( this, 0 );
+        if constexpr ( sizeof...( Tags ) == 0 )
+        {
+            ( get<typename TaggedTypes::TagType>().resize( n ), ... );
+        }
+        else
+        {
+            ( get<Tags>().resize( n ), ... );
+        }
     }
 
-    auto end()
+    /// @brief Remove rows if func(RowView) returns true.
+    /// @pre Vector elment type Value supports Value::operator=(Value&&).
+    /// @pre DataFrame is algined.
+    /// @return number of rows being removed.
+    template<bool bErase = false, class F>
+    size_t remove_rows_if( F &&func )
     {
         static_assert( is_dataframe, "Not a DataFrame!" );
-        return iterator( this, size() );
+        size_t m = 0, N = size();
+        for ( size_t i = 0; i < N; ++i )
+        {
+            if ( !func( typename df::RowView{this, i} ) )
+            {
+                if ( i != m )
+                    ( ( get<typename TaggedTypes::TagType>()[m] = std::move( get<typename TaggedTypes::TagType>()[i] ) ), ... );
+                ++m;
+            }
+        }
+        if constexpr ( bErase )
+        {
+            if ( m != N )
+                resize( m );
+        }
+
+        return N - m;
     }
-    auto end() const
+
+    /// @brief Copy rows to construct a new dataframe if func(RowView) returns true.
+    template<class F, class... Tags>
+    auto copy_rows_if( F &&func, Tags... ) const
+    {
+        if constexpr ( sizeof...( Tags ) == 0 )
+        {
+            using ReturnType = typename df::template RowType<typename TaggedTypes::TagType...>;
+            ReturnType res{};
+            for ( auto &rowview : *this )
+            {
+                if ( func( rowview ) )
+                {
+                    res.append_row( rowview.template get<typename TaggedTypes::TagType>()... );
+                }
+            }
+            return res;
+        }
+        else
+        {
+            using ReturnType = typename df::template RowType<Tags...>;
+            ReturnType res{};
+            for ( auto &rowview : *this )
+            {
+                if ( func( rowview ) )
+                {
+                    res.append_row( rowview.template get<Tags>()... );
+                }
+            }
+            return res;
+        }
+    }
+
+    /// @brief Copy rows to construct a new dataframe.
+    template<class F, class... Tags>
+    auto copy_rows( size_t pos, size_t n, Tags... ) const
+    {
+        if constexpr ( sizeof...( Tags ) == 0 )
+        {
+            using ReturnType = typename df::template RowType<typename TaggedTypes::TagType...>;
+            ReturnType res{};
+            for ( size_t i = pos, N = std::max( pos + n, size() ); i < N; ++i )
+            {
+                res.append_row( get<typename TaggedTypes::TagType>()[i]... );
+            }
+            return res;
+        }
+        else
+        {
+            using ReturnType = typename df::template RowType<Tags...>;
+            ReturnType res{};
+            for ( size_t i = pos, N = std::max( pos + n, size() ); i < N; ++i )
+            {
+                res.append_row( get<Tags>()[i]... );
+            }
+            return res;
+        }
+    }
+
+    /// @brief Erase n rows starting at pos.
+    /// @pre Vector elment type Value supports Value::operator=(Value&&).
+    /// @pre DataFrame is algined, otherwise it will throw runtime_error.
+    void erase_rows( size_t pos, size_t n )
     {
         static_assert( is_dataframe, "Not a DataFrame!" );
-        return const_iterator( this, size() );
+
+        auto N = size();
+        for ( size_t i = pos + n; i < N; ++i )
+        {
+            ( ( get<typename TaggedTypes::TagType>()[i - n] = std::move( get<typename TaggedTypes::TagType>()[i] ) ), ... );
+        }
+
+        resize( pos + n > size() ? pos : ( N - n ) );
     }
 
     /// @brief check if all columns have the same size (aligned).
@@ -809,6 +946,7 @@ struct TaggedTuple
     this_type &append_row( ValueType &&... values )
     {
         static_assert( is_dataframe, "Not a DataFrame!" );
+
         for_each_arg( []( auto, auto &&value, auto &&arg ) { value.emplace( value.end(), std::forward<decltype( arg )>( arg ) ); },
                       std::forward<ValueType>( values )... );
         return *this;
@@ -818,19 +956,18 @@ struct TaggedTuple
     void append_row( const std::tuple<Values...> &tup )
     {
         static_assert( is_dataframe, "Not a DataFrame!" );
-        for_each( [&]( auto tag, auto &col ) {
-            constexpr size_t idx = find_type_index<true, decltype( tag ), typename TaggedTypes::TagType...>();
-            col.emplace( col.end(), std::get<idx>( tup ) );
-        } );
+
+        ( emplace_back( get<typename TaggedTypes::TagType>(),
+                        std::get<find_type_index<true, typename TaggedTypes::TagType, typename TaggedTypes::TagType...>()>( tup ) ),
+          ... );
     }
 
     void append_row( std::tuple<typename TaggedTypes::ValueType...> &&tup )
     {
         static_assert( is_dataframe, "Not a DataFrame!" );
-        for_each( [&]( auto tag, auto &col ) {
-            constexpr size_t idx = find_type_index<true, decltype( tag ), typename TaggedTypes::TagType...>();
-            col.emplace( col.end(), std::move( std::get<idx>( tup ) ) );
-        } );
+        ( emplace_back( get<typename TaggedTypes::TagType>(),
+                        std::move( std::get<find_type_index<true, typename TaggedTypes::TagType, typename TaggedTypes::TagType...>()>( tup ) ) ),
+          ... );
     }
 
     /// @brief For each row call func( TagValue&&... )
@@ -931,22 +1068,14 @@ struct TaggedTuple
 
         if constexpr ( another.is_dataframe )
         {
-            for_each( [&]( auto tag, auto &value ) {
-                using Tag = decltype( tag );
-                auto &vec = another.template get<Tag>();
-                value.insert( value.end(), vec.begin(), vec.end() );
-            } );
+            ( emplace_back_vec( get<typename TaggedTypes::TagType>(), another.template get<typename TaggedTypes::TagType>() ), ... );
         }
         else
         {
-            for_each( [&]( auto tag, auto &value ) {
-                using Tag = decltype( tag );
-                value.emplace_back( another.template get<Tag>() );
-            } );
+            ( emplace_back( get<typename TaggedTypes::TagType>(), another.template get<typename TaggedTypes::TagType>() ), ... );
         }
         return *this;
     }
-
     template<class... TaggedTypes1>
     this_type &stack( TaggedTuple<TaggedTypes1...> &&another )
     {
@@ -954,18 +1083,11 @@ struct TaggedTuple
 
         if constexpr ( another.is_dataframe )
         {
-            for_each( [&]( auto tag, auto &value ) {
-                using Tag = decltype( tag );
-                auto &vec = another.template get<Tag>();
-                value.insert( value.end(), vec.begin(), vec.end() );
-            } );
+            ( emplace_back_vec( get<typename TaggedTypes::TagType>(), another.template get<typename TaggedTypes::TagType>() ), ... );
         }
         else
         {
-            for_each( [&]( auto tag, auto &value ) {
-                using Tag = decltype( tag );
-                value.emplace_back( std::move( another.template get<Tag>() ) );
-            } );
+            ( emplace_back( get<typename TaggedTypes::TagType>(), another.template get<typename TaggedTypes::TagType>() ), ... );
         }
         return *this;
     }
@@ -1015,11 +1137,21 @@ struct TaggedTuple
     }
 
 protected:
+    template<class Vec, class T>
+    static void emplace_back( Vec &vec, T &&t )
+    {
+        vec.emplace_back( std::forward<T>( t ) );
+    }
+    template<class Vec, class Vec1>
+    static void emplace_back_vec( Vec &vec, Vec1 &&vec1 )
+    {
+        vec.insert( vec.end(), vec1.begin(), vec1.end() );
+    }
+
     template<class F, std::size_t... Is, class Tuple>
     static void for_each_( const F &func, std::index_sequence<Is...>, Tuple &&tup )
     {
-        using expander = int[];
-        (void)expander{0, ( (void)func( NthType_t<Is, typename TaggedTypes::TagType...>{}, std::get<Is>( tup ) ), 0 )...};
+        ( func( NthType_t<Is, typename TaggedTypes::TagType...>{}, std::get<Is>( tup ) ), ... );
     }
 
     template<class... Tags>
