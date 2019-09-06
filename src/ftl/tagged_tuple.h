@@ -24,85 +24,106 @@
  *
  *
 
-void test_tagged_tuple()
+TEST_FUNC( tagged_tuple_tests )
 {
 
-    std::cout << "false:" << can_construct_dataframe<std::string, int>() << std::endl;
-    std::cout << "false:" << can_construct_dataframe<std::string, std::wstring>() << std::endl;
-    std::cout << "true:" << can_construct_dataframe<std::vector<int>, std::vector<std::string>>() << std::endl;
-    std::cout << "true:" << can_construct_dataframe<std::vector<int>, std::deque<std::string>>() << std::endl;
+    {
+        std::cout << "false:" << can_construct_dataframe<std::string, int>() << std::endl;
+        std::cout << "false:" << can_construct_dataframe<std::string, std::wstring>() << std::endl;
+        std::cout << "true:" << can_construct_dataframe<std::vector<int>, std::vector<std::string>>() << std::endl;
+        std::cout << "true:" << can_construct_dataframe<std::vector<int>, std::deque<std::string>>() << std::endl;
 
-    TaggedTuple<Tagged<"name"_tref, std::string>, TaggedType<decltype( "id"_t ), int>, Tagged<"score"_tref, double>> taggedTup;
-    TaggedTuple<Tagged<"age"_tref, int>, Tagged<"address"_tref, std::string>> info{10, "New York"};
-    taggedTup["name"_t] = "asdf";
-    taggedTup["id"_t] = 23;
+        TaggedTuple<Tagged<"name"_tref, std::string>, TaggedType<decltype( "id"_t ), int>, Tagged<"score"_tref, double>> taggedTup;
+        TaggedTuple<Tagged<"age"_tref, int>, Tagged<"address"_tref, std::string>> info{10, "New York"};
+        taggedTup["name"_t] = "asdf";
+        taggedTup["id"_t] = 23;
 
-    auto subtup = taggedTup.clone( "name"_t, "id"_t );
-    subtup["name"_t] += "+23";
+        auto subtup = taggedTup.clone( "name"_t, "id"_t );
+        subtup["name"_t] += "+23";
 
-    auto &constup = taggedTup;
-    auto subreftup = constup.ref( "name"_t, "id"_t );
-    subreftup["name"_t] = "abc";
+        auto &constup = taggedTup;
+        auto subreftup = constup.ref( "name"_t, "id"_t );
+        subreftup["name"_t] = "abc";
 
-    std::cout << "name:" << taggedTup["name"_t] << ",  subtuple same name:" << subtup["name"_t] << subtup.ref_tagged_value_at<0>() << std::endl;
+        std::cout << "name:" << taggedTup["name"_t] << ",  subtuple same name:" << subtup["name"_t] << subtup.ref_tagged_value_at<0>() << std::endl;
 
-    auto subsubref = subreftup.ref( "name"_t, "id"_t );
-    subsubref["name"_t] = "subsubref";
+        auto subsubref = subreftup.ref( "name"_t, "id"_t );
+        subsubref["name"_t] = "subsubref";
 
-    auto refinfo = info.ref();
-    auto combined = subreftup + refinfo; // concat TaggedTuples.
+        auto refinfo = info.ref();
+        auto combined = subreftup + refinfo; // concat TaggedTuples.
 
-    info["address"_t] = "New Jersey";
+        info["address"_t] = "New Jersey";
 
-    std::cout << "name:" << taggedTup["name"_t] << ",  subtuple same name:" << subtup["name"_t] << std::endl;
+        std::cout << "name:" << taggedTup["name"_t] << ",  subtuple same name:" << subtup["name"_t] << std::endl;
 
-    std::cout << refinfo << std::endl;
+        std::cout << refinfo << std::endl;
 
-    std::cout << "Combined: " << combined << std::endl;
-}
-
-void test_dataframe()
-{
-    DataFrame<Tagged<"name"_tref, std::string>, Tagged<"id"_tref, int>, Tagged<"score"_tref, double>> df;
-
-    df.append_row( std::string( "Jason" ), 2343, 2.3 );
-    df.append_row( "Tom A", 123, 849 );
-
-    std::cout << "df :" << df << std::endl;
-
-    df.rowref( 1 )["name"_t] = "Tom B";
-    df["name"_t][0] = "Jason B";
-
-    std::cout << "df: " << df << std::endl;
-
-    auto subref = df.ref( "name"_t, "id"_t );
-
-    subref["id"_t][1] = 111;
-
-    std::cout << "ref df: " << subref << std::endl;
-
-    std::cout << "df id changed: " << df << std::endl;
+        std::cout << "Combined: " << combined << std::endl;
+    }
 
 
-    DataFrame<Tagged<"age"_tref, int>, Tagged<"address"_tref, std::string>> df1( std::vector<int>{10, 20},
-                                                                                 std::vector<std::string>{"address NY", "address NJ"} );
+    { // tagged_tuple_dataframe_tests
+        DataFrame<Tagged<"name"_tref, std::string>, Tagged<"id"_tref, int>, Tagged<"score"_tref, double>> df;
 
-    auto df1ref = df1.ref();
+        df.append_row( std::string( "Jason" ), 2343, 2.3 );
+        df.append_row( "Tom A", 123, 849 );
 
-    auto df2 = df + df1ref; // df2 reference to df1, copy of df.
+        std::cout << "df :" << df << std::endl;
 
-    df1["address"_t][1] = "address CT";
+        df.rowref( 1 )["name"_t] = "Tom B";
+        df["name"_t][0] = "Jason B";
 
-    std::cout << "df1ref :" << df1ref << std::endl;
-    std::cout << "combined df2 address[1] is changed to CT :" << df2 << std::endl;
+        std::cout << "df: " << df << std::endl;
 
-    df2.append_row( "Sam C", 234, 10, 100, "address CC" );
+        auto subref = df.ref( "name"_t, "id"_t );
 
-    std::cout << "combined df2 3 rows:" << df2 << std::endl;
+        subref["id"_t][1] = 111;
 
-    std::cout << "original df1 3 rows:" << df1 << std::endl;
+        std::cout << "ref df: " << subref << std::endl;
 
-    std::cout << "df1 is still 2 row: no change:" << df << std::endl;
+        std::cout << "df id changed: " << df << std::endl;
+
+
+        DataFrame<Tagged<"age"_tref, int>, Tagged<"address"_tref, std::string>> df1( std::vector<int>{10, 20},
+                                                                                     std::vector<std::string>{"address NY", "address NJ"} );
+
+        auto df1ref = df1.ref();
+
+        auto df2 = df + df1ref; // df2 references to df1, copy of df.
+
+        df1["address"_t][1] = "address CT";
+
+        std::cout << "df1ref :" << df1ref << std::endl;
+        std::cout << "combined df2 address[1] is changed to CT :" << df2 << std::endl;
+
+        df2.append_row( "Sam C", 234, 10, 100, "address CC" );
+
+        std::cout << "combined df2 3 rows:" << df2 << std::endl;
+
+        std::cout << "original df1 3 rows:" << df1 << std::endl;
+
+        std::cout << "df1 is still 2 row: no change:" << df << std::endl;
+
+
+        { //// test stack
+            DataFrame<Tagged<"name"_tref, std::string>, Tagged<"id"_tref, int>> df( std::vector<std::string>{"A", "B"}, std::vector<int>{1, 2} );
+            df.stack( TaggedTuple<Tagged<"name"_tref, std::string>, Tagged<"age"_tref, int>, Tagged<"id"_tref, int>>{std::string( "C" ), 23, 3} );
+
+            std::cout << "stacked dataframe 3 rows:" << df << std::endl;
+
+            DataFrame<Tagged<"name"_tref, std::string>, Tagged<"age"_tref, int>, Tagged<"id"_tref, int>> df1(
+                    std::vector<std::string>{"D", "E"}, std::vector<int>{20, 50}, std::vector<int>{5, 2} );
+
+            df.stack( df1 );
+
+            std::cout << "stacked dataframe 5 rows:" << df << std::endl;
+
+            auto stacked_copy = df.stack( df1 );
+
+            std::cout << "stacked copy dataframe 7 rows:" << stacked_copy << std::endl;
+        }
+    }
 }
 
  *
@@ -282,6 +303,30 @@ auto PrependTuple_( TaggedTuple<Args...> ) -> TaggedTuple<TaggedType, Args...>;
 template<class T, class Tuple>
 using PrependTuple_t = decltype( PrependTuple_<T>( Tuple{} ) );
 
+template<class T>
+const T &min_value( const T &a, const T &b )
+{
+    return std::min( a, b );
+}
+
+template<class T, class... Args>
+const T &min_value( const T &a, const T &b, const Args &... args )
+{
+    return min_value( min_value( a, b ), args... );
+}
+
+template<class T>
+const T &max_value( const T &a, const T &b )
+{
+    return std::max( a, b );
+}
+template<class T, class... Args>
+const T &max_value( const T &a, const T &b, const Args &... args )
+{
+    return max_value( max_value( a, b ), args... );
+}
+
+
 template<class U>
 struct is_random_accessible_container
 {
@@ -349,11 +394,11 @@ struct TaggedTuple
     {
     }
 
-    auto &get_value_tuple()
+    auto &get_tuple()
     {
         return tup_;
     }
-    const auto &get_value_tuple() const
+    const auto &get_tuple() const
     {
         return tup_;
     }
@@ -481,34 +526,63 @@ struct TaggedTuple
         return get_ref_tuple<typename TaggedTypes::TagType...>();
     }
 
-    /// @brief Concat with another TaggedTuple
+    /// @brief Join with another TaggedTuple
     /// @pre No TagType conflicts.
-    template<class... TaggedTypes1>
-    auto concat( const TaggedTuple<TaggedTypes1...> &another ) const
+    /// @param checkAlignmentForDataFrame Throws std::runtime_error when resulting in non-aligned dataframe or non dataframe.
+    template<bool checkAlignmentForDataFrame = true, class... TaggedTypes1>
+    auto join( const TaggedTuple<TaggedTypes1...> &another ) const
     {
         static_assert( unique_types_v<typename TaggedTypes::TagType..., typename TaggedTypes1::TagType...>, "Type Conflicts!" );
 
+        if constexpr ( checkAlignmentForDataFrame )
+        {
+            static_assert( !( is_dataframe && !another.is_dataframe ), "join dataframe with non-dataframe!" );
+            static_assert( !( !is_dataframe && another.is_dataframe ), "join non-dataframe with dataframe!" );
+
+            if constexpr ( is_dataframe && another.is_dataframe )
+            {
+                if ( !aligned() || !another.aligned() || aligned_size() != another.aligned_size() )
+                {
+                    assert( false && "join dataframes with different sizes!" );
+                    throw std::runtime_error( "join dataframes with different sizes!" );
+                }
+            }
+        }
         using ReturnType = TaggedTuple<TaggedTypes..., TaggedTypes1...>;
-        return ReturnType{std::tuple_cat( tup_, another.get_value_tuple() )};
+        return ReturnType{std::tuple_cat( tup_, another.get_tuple() )};
     }
 
     template<class... TaggedTypes1>
     auto operator+( const TaggedTuple<TaggedTypes1...> &another ) const
     {
-        return concat( another );
+        return join( another );
     }
 
     /// @brief For each element, call Function func(Tag, Value)
-    template<class F>
-    void for_each( const F &func )
+    template<class F, class... Tags>
+    void for_each( const F &func, Tags... )
     {
-        for_each_( func, std::make_index_sequence<sizeof...( TaggedTypes )>(), tup_ );
+        if constexpr ( sizeof...( Tags ) == 0 )
+        {
+            for_each_( func, std::make_index_sequence<sizeof...( TaggedTypes )>(), tup_ );
+        }
+        else
+        {
+            for_each_( func, std::index_sequence<find_type_index<Tags, TaggedTypes...>()...>{}, tup_ );
+        }
     }
 
-    template<class F>
-    void for_each( const F &func ) const
+    template<class F, class... Tags>
+    void for_each( const F &func, Tags... ) const
     {
-        for_each_( func, std::make_index_sequence<sizeof...( TaggedTypes )>(), tup_ );
+        if constexpr ( sizeof...( Tags ) == 0 )
+        {
+            for_each_( func, std::make_index_sequence<sizeof...( TaggedTypes )>(), tup_ );
+        }
+        else
+        {
+            for_each_( func, std::index_sequence<find_type_index<Tags, TaggedTypes...>()...>{}, tup_ );
+        }
     }
 
     /// @brief For each element, call Function func(Tag, Value, arg)
@@ -539,8 +613,10 @@ struct TaggedTuple
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////
-    // DataFrame API
-    // @todo add static constexpr bool is_like_dataframe(), which returns true if all TaggedTypes::ValueType is like container.
+    //
+    //                       DataFrame APIs
+    //
+    /////////////////////////////////////////////////////////////////////////////////////////////////
 
     static constexpr bool is_dataframe = can_construct_dataframe<RemoveCVRef_t<typename TaggedTypes::ValueType>...>();
 
@@ -659,11 +735,44 @@ struct TaggedTuple
     using iterator = Iterator<is_dataframe, this_type>;
     using const_iterator = Iterator<is_dataframe, const this_type>;
 
+    /// @brief Get the min/aligned size of columns.
+    template<class... Tags>
+    size_t aligned_size( Tags... ) const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        if constexpr ( sizeof...( Tags ) == 0 )
+        {
+            return min_value( get<typename TaggedTypes::TagType>().size()... );
+        }
+        else
+        {
+            return min_value( get<Tags>().size()... );
+        }
+    }
+
+    /// @brief Get the max size of columns.
+    template<class... Tags>
+    size_t max_size( Tags... ) const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        if constexpr ( sizeof...( Tags ) == 0 )
+        {
+            return max_value( get<typename TaggedTypes::TagType>().size()... );
+        }
+        else
+        {
+            return max_value( get<Tags>().size()... );
+        }
+    }
+
+    /// @brief Get the size of column 0, which is the aligned dataframe row size. It's a fast way to get size, but may cause problem if it's not
+    /// aligned.
     auto size() const
     {
         static_assert( is_dataframe, "Not a DataFrame!" );
         return this->at<0>().size();
     }
+
     auto begin()
     {
         static_assert( is_dataframe, "Not a DataFrame!" );
@@ -687,11 +796,20 @@ struct TaggedTuple
         return const_iterator( this, size() );
     }
 
+    /// @brief check if all columns have the same size (aligned).
+    bool aligned() const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+        const auto N = size();
+        return ( true && ... && ( N == get<typename TaggedTypes::TagType>().size() ) );
+    }
+
+
     template<class... ValueType>
     this_type &append_row( ValueType &&... values )
     {
         static_assert( is_dataframe, "Not a DataFrame!" );
-        for_each_arg( []( auto, auto &&value, auto &&arg ) { value.insert( value.end(), std::forward<decltype( arg )>( arg ) ); },
+        for_each_arg( []( auto, auto &&value, auto &&arg ) { value.emplace( value.end(), std::forward<decltype( arg )>( arg ) ); },
                       std::forward<ValueType>( values )... );
         return *this;
     }
@@ -702,7 +820,7 @@ struct TaggedTuple
         static_assert( is_dataframe, "Not a DataFrame!" );
         for_each( [&]( auto tag, auto &col ) {
             constexpr size_t idx = find_type_index<true, decltype( tag ), typename TaggedTypes::TagType...>();
-            col.insert( col.end(), std::get<idx>( tup ) );
+            col.emplace( col.end(), std::get<idx>( tup ) );
         } );
     }
 
@@ -711,13 +829,13 @@ struct TaggedTuple
         static_assert( is_dataframe, "Not a DataFrame!" );
         for_each( [&]( auto tag, auto &col ) {
             constexpr size_t idx = find_type_index<true, decltype( tag ), typename TaggedTypes::TagType...>();
-            col.insert( col.end(), std::move( std::get<idx>( tup ) ) );
+            col.emplace( col.end(), std::move( std::get<idx>( tup ) ) );
         } );
     }
 
     /// @brief For each row call func( TagValue&&... )
     template<class F, class... Tags>
-    void for_each_row( F &&func, Tags... tags )
+    void for_each_row( F &&func, Tags... )
     {
         static_assert( is_dataframe, "Not a DataFrame!" );
         for ( size_t i = 0, N = size(); i < N; ++i )
@@ -794,6 +912,7 @@ struct TaggedTuple
         else
             return typename df::template RowConstRefType<Tags...>( this->template get<Tags>()[idx]... );
     }
+
     template<class... Tags>
     auto rowcopy( size_t idx, Tags... ) const
     {
@@ -802,6 +921,80 @@ struct TaggedTuple
             return typename df::template RowType<typename TaggedTypes::TagType...>( this->template get<typename TaggedTypes::TagType>()[idx]... );
         else
             return typename df::template RowType<Tags...>( this->template get<Tags>()[idx]... );
+    }
+
+    /// @brief Stack another dataframe or non-datafame TaggedTuple. Another must have all TagType in current DataFrame.
+    template<class... TaggedTypes1>
+    this_type &stack( const TaggedTuple<TaggedTypes1...> &another )
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+
+        if constexpr ( another.is_dataframe )
+        {
+            for_each( [&]( auto tag, auto &value ) {
+                using Tag = decltype( tag );
+                auto &vec = another.template get<Tag>();
+                value.insert( value.end(), vec.begin(), vec.end() );
+            } );
+        }
+        else
+        {
+            for_each( [&]( auto tag, auto &value ) {
+                using Tag = decltype( tag );
+                value.emplace_back( another.template get<Tag>() );
+            } );
+        }
+        return *this;
+    }
+
+    template<class... TaggedTypes1>
+    this_type &stack( TaggedTuple<TaggedTypes1...> &&another )
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+
+        if constexpr ( another.is_dataframe )
+        {
+            for_each( [&]( auto tag, auto &value ) {
+                using Tag = decltype( tag );
+                auto &vec = another.template get<Tag>();
+                value.insert( value.end(), vec.begin(), vec.end() );
+            } );
+        }
+        else
+        {
+            for_each( [&]( auto tag, auto &value ) {
+                using Tag = decltype( tag );
+                value.emplace_back( std::move( another.template get<Tag>() ) );
+            } );
+        }
+        return *this;
+    }
+
+    template<class TaggedTupleT, class... Tags>
+    auto stack_copy( const TaggedTupleT &another, Tags... ) const
+    {
+        static_assert( is_dataframe, "Not a DataFrame!" );
+
+        if constexpr ( sizeof...( Tags ) == 0 )
+        {
+            using ReturnType = this_type;
+            ReturnType res{};
+            res.stack( *this );
+            return res.stack( another );
+        }
+        else
+        {
+            using ReturnType = SubTupleType<Tags...>;
+            ReturnType res{};
+            res.stack( *this );
+            return res.stack( another );
+        }
+    }
+
+    template<class TaggedTupleT, class... Tags>
+    auto stack( const TaggedTupleT &another, Tags... ) const
+    {
+        return stack_copy( another, Tags{}... );
     }
 
     std::ostream &print_json_by_row( std::ostream &os ) const
@@ -821,7 +1014,7 @@ struct TaggedTuple
         return os;
     }
 
-private:
+protected:
     template<class F, std::size_t... Is, class Tuple>
     static void for_each_( const F &func, std::index_sequence<Is...>, Tuple &&tup )
     {
