@@ -61,7 +61,7 @@ public:
 
     MPSCBoundedQueue( size_t cap, allocator_type &&alloc = allocator_type() ) : mAlloc( alloc ), mCap( cap )
     {
-        Init( cap );
+        init( cap );
     }
     MPSCBoundedQueue( allocator_type &&alloc = allocator_type() ) : mAlloc( alloc ), mCap( 0 )
     {
@@ -77,10 +77,35 @@ public:
             mBuf = nullptr;
         }
     }
-    MPSCBoundedQueue( const MPSCBoundedQueue & ) = delete;
-    MPSCBoundedQueue &operator=( const MPSCBoundedQueue & ) = delete;
+    // @brief Move Constructor: move memory if it's allocated. Otherwise, allocate new buffer.
+    MPSCBoundedQueue( MPSCBoundedQueue &&a )
+        : mAlloc( std::move( a.mAlloc ) ), mCap( a.mCap ), mBuf( a.mBuf ), mPushPos( a.mPushPos.load() ), mPopPos( a.mPopPos.load() )
+    {
+        a.mBuf = nullptr;
+        if ( mBuf == nullptr && mCap > 0 )
+            init( mCap );
+    }
 
-    bool Init( size_t cap )
+    // @brief Copy Constructor: alway allocate new buffer.
+    MPSCBoundedQueue( const MPSCBoundedQueue &a ) : MPSCBoundedQueue( a.mCap, a.mAlloc )
+    {
+    }
+
+    MPSCBoundedQueue &operator=( const MPSCBoundedQueue &a )
+    {
+        ~MPSCBoundedQueue();
+        new ( this ) MPSCBoundedQueue( a );
+        return *this;
+    }
+
+    MPSCBoundedQueue &operator=( MPSCBoundedQueue &&a )
+    {
+        ~MPSCBoundedQueue();
+        new ( this ) MPSCBoundedQueue( std::move( a ) );
+        return *this;
+    }
+
+    bool init( size_t cap )
     {
         mCap = cap;
         mBuf = mAlloc.allocate( cap );
@@ -89,11 +114,14 @@ public:
         for ( size_t i = 0; i < cap; ++i )
         {
             new ( &mBuf[i].seq() ) seq_type();
-            mBuf[i].seq() = 0;
+            mBuf[i].seq() = i;
         }
+        mPushPos = 0;
+        mPopPos = 0;
         return true;
     }
 
+    // @return false if it's full.
     template<class... Args>
     bool push( Args &&... args )
     {
@@ -120,6 +148,8 @@ public:
         }
     }
 
+    // @brief Call T(T&&) to construct object T.
+    // @return false if it's empty.
     bool pop_back( T *buf = nullptr )
     {
         return pop( buf );
@@ -147,7 +177,7 @@ public:
             return false;
         }
     }
-    T *top()
+    T *top() const
     {
         auto poppos = mPopPos.load( std::memory_order_acquire );
         auto &entry = mBuf[poppos % mCap];
