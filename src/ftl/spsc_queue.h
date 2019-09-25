@@ -32,33 +32,51 @@ class SPSCRingQueue
     T *mBuf = nullptr;
     std::atomic<size_t> mPushPos = 0, mPopPos = 0;
 
-    SPSCRingQueue( const SPSCRingQueue & ) = delete;
     SPSCRingQueue &operator=( const SPSCRingQueue & ) = delete;
 
 public:
-    SPSCRingQueue( size_t cap, AllocT &&alloc = AllocT() ) : mAlloc( alloc ), mCap( cap ), mBuf( mAlloc.allocate( cap ) )
+    SPSCRingQueue( size_t cap, AllocT &&alloc = AllocT() ) : mAlloc( std::move( alloc ) ), mCap( cap ), mBuf( mAlloc.allocate( cap ) )
     {
     }
+
     SPSCRingQueue( AllocT &&alloc = AllocT() ) : mAlloc( alloc )
     {
     }
+
     SPSCRingQueue( SPSCRingQueue &&a ) : mAlloc( a.mAlloc ), mCap( a.mCap ), mBuf( a.mBuf ), mPushPos( a.mPushPos ), mPopPos( a.mPopPos )
     {
         a.mBuf = nullptr;
         a.mPushPos = 0;
         a.mPopPos = 0;
+        if ( mBuf == nullptr && mCap > 0 )
+            init( mCap );
     }
-    bool Init( size_t cap, AllocT &&alloc = AllocT() )
+
+    SPSCRingQueue( const SPSCRingQueue &a ) : mAlloc( a.alloc )
     {
-        mAlloc = std::move( alloc );
-        mCap = cap;
-        mBuf = mAlloc.allocate( cap );
-        return mBuf;
+        init( mCap );
     }
+
+    bool init( size_t cap )
+    {
+        destruct();
+        mCap = cap;
+        mPushPos = 0;
+        mPopPos = 0;
+        if ( mCap > 0 )
+        {
+            mBuf = mAlloc.allocate( mCap );
+            return mBuf;
+        }
+        else
+            return true;
+    }
+
     ~SPSCRingQueue()
     {
         destruct();
     }
+
     void destruct()
     {
         if ( mBuf )

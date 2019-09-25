@@ -46,6 +46,7 @@ public:
     MPSCUnboundedNodeQueue() : mHead( &mStub ), mTail( &mStub )
     {
     }
+
     ~MPSCUnboundedNodeQueue()
     { // allow destructing non-empty queue
     }

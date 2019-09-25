@@ -59,13 +59,16 @@ protected:
 public:
     using value_type = T;
 
-    MPSCBoundedQueue( size_t cap, allocator_type &&alloc = allocator_type() ) : mAlloc( alloc ), mCap( cap )
+    MPSCBoundedQueue( size_t cap = 0, allocator_type &&alloc = allocator_type() ) : mAlloc( std::move( alloc ) ), mCap( cap )
     {
         init( cap );
     }
-    MPSCBoundedQueue( allocator_type &&alloc = allocator_type() ) : mAlloc( alloc ), mCap( 0 )
+
+    MPSCBoundedQueue( size_t cap, const allocator_type &alloc ) : mAlloc( alloc ), mCap( cap )
     {
+        init( cap );
     }
+
     ~MPSCBoundedQueue()
     {
 
@@ -77,6 +80,7 @@ public:
             mBuf = nullptr;
         }
     }
+
     // @brief Move Constructor: move memory if it's allocated. Otherwise, allocate new buffer.
     MPSCBoundedQueue( MPSCBoundedQueue &&a )
         : mAlloc( std::move( a.mAlloc ) ), mCap( a.mCap ), mBuf( a.mBuf ), mPushPos( a.mPushPos.load() ), mPopPos( a.mPopPos.load() )
@@ -93,20 +97,21 @@ public:
 
     MPSCBoundedQueue &operator=( const MPSCBoundedQueue &a )
     {
-        ~MPSCBoundedQueue();
+        this->~MPSCBoundedQueue();
         new ( this ) MPSCBoundedQueue( a );
         return *this;
     }
 
     MPSCBoundedQueue &operator=( MPSCBoundedQueue &&a )
     {
-        ~MPSCBoundedQueue();
+        this->~MPSCBoundedQueue();
         new ( this ) MPSCBoundedQueue( std::move( a ) );
         return *this;
     }
 
     bool init( size_t cap )
     {
+        this->~MPSCBoundedQueue();
         mCap = cap;
         mBuf = mAlloc.allocate( cap );
         if ( !mBuf )
@@ -154,6 +159,7 @@ public:
     {
         return pop( buf );
     }
+
     // buf: uninitialized memory
     bool pop( T *buf = nullptr )
     {
@@ -177,6 +183,7 @@ public:
             return false;
         }
     }
+
     T *top() const
     {
         auto poppos = mPopPos.load( std::memory_order_acquire );

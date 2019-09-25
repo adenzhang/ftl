@@ -40,23 +40,23 @@ public:
 public:
     /// @brief if nThread == 0, thread will not be created.
     /// if nThread>0, call start(nThread)
-    ThreadArray( size_t nThread = 0, const TaskQ &taskQ = TaskQ{}, IdleTask &&idleTask = NoopTask{} ) : idleTask_( std::move( idleTask ) )
+    ThreadArray( size_t nThread = 0, const TaskQ &taskQ = TaskQ{}, IdleTask &&idleTask = NoopTask{} ) : mIdleTask( std::move( idleTask ) )
     {
-        status_ = INIT;
+        mStatus = INIT;
         if ( nThread )
             start( nThread, ThreadData{}, taskQ );
     }
 
     void start( size_t nThread, const ThreadData &tdata = ThreadData{}, const TaskQ &taskQ = TaskQ{} )
     {
-        threadInfo_.clear();
-        threadInfo_.reserve( nThread );
-        status_ = WORKING;
+        mThreadInfo.clear();
+        mThreadInfo.reserve( nThread );
+        mStatus = WORKING;
         for ( size_t i = 0; i < nThread; ++i )
         {
-            threadInfo_.emplace_back( ThreadInfo{tdata, taskQ, std::thread( [this, me = this, threadIdx = i] {
-                                                     activeThreads_.fetch_add( 1 );
-                                                     auto &taskQ = threadInfo_[threadIdx].taskQ;
+            mThreadInfo.emplace_back( ThreadInfo{tdata, taskQ, std::thread( [this, me = this, threadIdx = i] {
+                                                     mActiveThreads.fetch_add( 1 );
+                                                     auto &taskQ = mThreadInfo[threadIdx].taskQ;
                                                      while ( true )
                                                      {
                                                          for ( auto pTask = taskQ.top(); pTask; pTask = taskQ.top() )
@@ -64,11 +64,11 @@ public:
                                                              ( *pTask )( threadIdx );
                                                              taskQ.pop();
                                                          }
-                                                         if ( status_.load() == STOPPING )
+                                                         if ( mStatus.load() == STOPPING )
                                                              break;
-                                                         idleTask_( threadIdx );
+                                                         mIdleTask( threadIdx );
                                                      }
-                                                     activeThreads_.fetch_sub( 1 );
+                                                     mActiveThreads.fetch_sub( 1 );
                                                  } )} );
         }
     }
@@ -76,10 +76,10 @@ public:
     // @return true if stopped.
     bool stop( bool bSync = false )
     {
-        auto status = status_.load();
+        auto status = mStatus.load();
         if ( status != WORKING && status != STOPPING )
             return true;
-        status_ = STOPPING;
+        mStatus = STOPPING;
         if ( bSync )
         {
             join();
@@ -87,7 +87,7 @@ public:
         }
         else
         {
-            if ( activeThreads_.load() == 0 )
+            if ( mActiveThreads.load() == 0 )
                 join();
             return false;
         }
@@ -96,38 +96,38 @@ public:
     // @brief Put task onto thread queue.
     bool put_task( size_t threadIdx, const Task &task )
     {
-        return threadInfo_[threadIdx].taskQ.push( task );
+        return mThreadInfo[threadIdx].taskQ.push( task );
     }
 
     // @brief Put task onto thread queue.
     template<class... Args>
     bool emplace_task( size_t threadIdx, Args &&... args )
     {
-        return threadInfo_[threadIdx].taskQ.emplace( std::forward<Args>( args )... );
+        return mThreadInfo[threadIdx].taskQ.emplace( std::forward<Args>( args )... );
     }
 
     const std::thread &thread( size_t threadIdx ) const
     {
-        return threadInfo_[threadIdx].thread;
+        return mThreadInfo[threadIdx].thread;
     }
     ThreadData &thread_data( size_t threadIdx ) const
     {
-        return threadInfo_[threadIdx].data;
+        return mThreadInfo[threadIdx].data;
     }
 
     ThreadData &shared_data()
     {
-        return sharedData_;
+        return mSharedData;
     }
 
 protected:
     void join()
     {
-        for ( auto &tinfo : threadInfo_ )
+        for ( auto &tinfo : mThreadInfo )
         {
             tinfo.thread.join();
         }
-        status_ = STOPPED;
+        mStatus = STOPPED;
     }
 
     struct ThreadInfo
@@ -137,10 +137,10 @@ protected:
         std::thread thread;
     };
 
-    IdleTask idleTask_;
-    std::vector<ThreadInfo> threadInfo_;
-    SharedData sharedData_;
-    std::atomic<unsigned> activeThreads_{0};
-    std::atomic<Status> status_{INIT};
+    IdleTask mIdleTask;
+    std::vector<ThreadInfo> mThreadInfo;
+    SharedData mSharedData;
+    std::atomic<unsigned> mActiveThreads{0};
+    std::atomic<Status> mStatus{INIT};
 };
 } // namespace ftl
