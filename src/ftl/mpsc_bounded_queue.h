@@ -128,7 +128,7 @@ public:
 
     // @return false if it's full.
     template<class... Args>
-    bool push( Args &&... args )
+    bool emplace( Args &&... args )
     {
         for ( ;; )
         {
@@ -151,6 +151,11 @@ public:
                 return false;
             } // else pushpos was acquired by other push thread, retry
         }
+    }
+
+    bool push( const T &v )
+    {
+        return emplace( v );
     }
 
     // @brief Call T(T&&) to construct object T.

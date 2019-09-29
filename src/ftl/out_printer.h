@@ -18,10 +18,13 @@
 #pragma once
 #include <iostream>
 #include <memory>
-#include <optional>
+#include <map>
 
 namespace ftl
 {
+/// @brief container or any element that has either :
+///     - c_str()
+///     - OStream << T()
 template<class OStream = std::ostream>
 struct OutPrinter
 {
@@ -30,21 +33,23 @@ struct OutPrinter
     struct IsIterable
     {
         template<class T>
-        static auto Check( std::enable_if_t<std::is_same_v<decltype( std::declval<T>().begin() ), decltype( std::declval<T>().end() )>, int> )
+        static auto Check(
+                typename std::enable_if<std::is_same<decltype( std::declval<T>().begin() ), decltype( std::declval<T>().end() )>::value, int>::type )
                 -> decltype( bool() );
         template<class>
         static int Check( ... );
         static const bool value = ::std::is_same<decltype( Check<U>( 0 ) ), bool>::value;
     };
+
     template<typename U = void> // std::is_same< decltype( m.begin()->second ), decltype( m[ std::declval<decltype( m.begin()->first )> ] ) >
     struct IsMap
     {
         template<class T>
-        static auto Check(
-                std::enable_if_t<std::is_same_v<std::remove_reference_t<decltype( std::declval<T>().begin()->second )>,
-                                                std::remove_reference_t<decltype(
-                                                        std::declval<T>()[std::declval<decltype( std::declval<T>().begin()->first )>()] )>>,
-                                 int> ) -> decltype( bool() );
+        static auto Check( typename std::enable_if<
+                           std::is_same<typename std::remove_reference<decltype( std::declval<T>().begin()->second )>::type,
+                                        typename std::remove_reference<decltype(
+                                                std::declval<T>()[std::declval<decltype( std::declval<T>().begin()->first )>()] )>::type>::value,
+                           int>::type ) -> decltype( bool() );
         template<class>
         static int Check( ... );
         static const bool value = ::std::is_same<decltype( Check<U>( 0 ) ), bool>::value;
@@ -53,7 +58,8 @@ struct OutPrinter
     struct has_c_str
     {
         template<class T>
-        static auto Check( std::enable_if_t<std::is_same_v<const char *, decltype( std::declval<T>().c_str() )>, int> ) -> decltype( bool() );
+        static auto Check( typename std::enable_if<std::is_same<const char *, decltype( std::declval<T>().c_str() )>::value, int>::type )
+                -> decltype( bool() );
         template<class>
         static int Check( ... );
         static const bool value = ::std::is_same<decltype( Check<U>( 0 ) ), bool>::value;
@@ -75,31 +81,57 @@ struct OutPrinter
     struct is_pair<std::pair<Ts...>> : std::true_type
     {
     };
-    template<typename T>
-    struct is_tuple : std::false_type
-    {
-    };
-    template<typename... Ts>
-    struct is_tuple<std::tuple<Ts...>> : std::true_type
-    {
-    };
-    template<typename T>
-    struct is_optional : std::false_type
-    {
-    };
-    template<typename... Ts>
-    struct is_optional<std::optional<Ts...>> : std::true_type
-    {
-    };
 
     template<class T>
-    static constexpr bool is_specially_handled =
-            IsIterable<T>::value || is_pair<T>::value || is_tuple<T>::value || is_optional<T>::value || has_c_str<T>::value || is_like_ptr<T>::value;
+    struct is_specially_handled
+    {
+        const static bool value = IsIterable<T>::value || is_pair<T>::value || has_c_str<T>::value || is_like_ptr<T>::value;
+    };
 
+public:
     OutPrinter( std::ostream &o = std::cout ) : os( o )
     {
     }
 
+    //------------ publicly used APIs --------------
+
+    template<class... Tail>
+    this_type &print( Tail const &... tail )
+    {
+        before_print();
+        (void)std::initializer_list<int>{( prt( tail ), 0 )...};
+        return *this;
+    }
+    template<class... Tail>
+    this_type &println( Tail const &... tail )
+    {
+        before_print();
+        (void)std::initializer_list<int>{( prt( tail ), 0 )...};
+        os << std::endl;
+        return *this;
+    }
+    template<class Delm, class Head, class... Tail>
+    this_type &printJoined( Delm const &d, Head const &h, Tail const &... tail )
+    {
+        before_print();
+        prt( h );
+        (void)std::initializer_list<int>{( prt( d ).prt( tail ), 0 )...};
+        return *this;
+    }
+    template<class Delm, class Head, class... Tail>
+    this_type &printlnJoined( Delm const &d, Head const &h, Tail const &... tail )
+    {
+        before_print();
+        prt( h );
+        (void)std::initializer_list<int>{( prt( d ).prt( tail ), 0 )...};
+        os << std::endl;
+        return *this;
+    }
+
+public:
+    virtual void before_print()
+    {
+    }
     template<class It>
     this_type &prtIter( It it0, It it1 )
     {
@@ -114,9 +146,9 @@ struct OutPrinter
     }
     // print pair
     template<class Pair>
-    std::enable_if_t<is_pair<Pair>::value, this_type &> prt( Pair const &tu,
-                                                             char q0 = 0,
-                                                             char q1 = 0 ) // todo: tuple like
+    typename std::enable_if<is_pair<Pair>::value, this_type &>::type prt( Pair const &tu,
+                                                                          char q0 = 0,
+                                                                          char q1 = 0 ) // todo: tuple like
     {
         return prt( q0 ).prt( tu.first ).prt( KVS ).prt( tu.second ).prt( q1 );
     }
@@ -133,11 +165,11 @@ struct OutPrinter
         return *this;
     }
 
-    this_type &prt( const char *t, std::optional<bool> bQuoted = {} )
+    this_type &prt( const char *t, bool bQuoted = false )
     {
         if ( t != nullptr )
         {
-            if ( ( bQuoted && *bQuoted ) || ( !bQuoted && nInCollections ) )
+            if ( bQuoted || nInCollections )
                 os << STRQ << t << STRQ;
             else
                 os << t;
@@ -147,13 +179,13 @@ struct OutPrinter
         return *this;
     }
     template<class T>
-    std::enable_if_t<has_c_str<T>::value, this_type &> prt( const T &t )
+    typename std::enable_if<has_c_str<T>::value, this_type &>::type prt( const T &t )
     {
         return prt( t.c_str(), false );
     }
 
     template<class T>
-    std::enable_if_t<IsIterable<T>::value && !IsMap<T>::value && !has_c_str<T>::value, this_type &> prt( const T &t )
+    typename std::enable_if<IsIterable<T>::value && !IsMap<T>::value && !has_c_str<T>::value, this_type &>::type prt( const T &t )
     {
         ++nInCollections;
         prt( Q0 ).prtIter( t.begin(), t.end() ).prt( Q1 );
@@ -161,7 +193,7 @@ struct OutPrinter
         return *this;
     }
     template<class T>
-    std::enable_if_t<IsMap<T>::value, this_type &> prt( const T &t ) // todo:
+    typename std::enable_if<IsMap<T>::value, this_type &>::type prt( const T &t )
     {
         ++nInCollections;
         prt( MQ0 ).prtIter( t.begin(), t.end() ).prt( MQ1 );
@@ -169,40 +201,9 @@ struct OutPrinter
         return *this;
     }
     template<class T>
-    std::enable_if_t<!is_specially_handled<T>, this_type &> prt( T const &a )
+    typename std::enable_if<!is_specially_handled<T>::value, this_type &>::type prt( T const &a )
     {
-        std::cout << a;
-        return *this;
-    }
-
-    //------------ publicly used APIs --------------
-
-    template<class... Tail>
-    this_type &print( Tail const &... tail )
-    {
-        (void)std::initializer_list<int>{( prt( tail ), 0 )...};
-        return *this;
-    }
-    template<class... Tail>
-    this_type &println( Tail const &... tail )
-    {
-        (void)std::initializer_list<int>{( prt( tail ), 0 )...};
-        os << std::endl;
-        return *this;
-    }
-    template<class Delm, class Head, class... Tail>
-    this_type &printJoined( Delm const &d, Head const &h, Tail const &... tail )
-    {
-        prt( h );
-        (void)std::initializer_list<int>{( prt( d ).prt( tail ), 0 )...};
-        return *this;
-    }
-    template<class Delm, class Head, class... Tail>
-    this_type &printlnJoined( Delm const &d, Head const &h, Tail const &... tail )
-    {
-        prt( h );
-        (void)std::initializer_list<int>{( prt( d ).prt( tail ), 0 )...};
-        os << std::endl;
+        os << a;
         return *this;
     }
 
@@ -210,8 +211,38 @@ struct OutPrinter
     char DELM = ',', KVS = ':', Q0 = '[', Q1 = ']', MQ0 = '{', MQ1 = '}', STRQ = '"';
     int nInCollections = 0; // in depth of containers
 };
+
 using OSPrinter = OutPrinter<>;
 static OSPrinter outPrinter;
+
+struct ErrPrinter : OutPrinter<>
+{
+    ErrPrinter( std::ostream &o = std::cerr ) : OutPrinter<>( o )
+    {
+    }
+
+    template<class... Tail>
+    this_type &err( Tail const &... tail )
+    {
+        (void)std::initializer_list<int>{( prt( tail ), 0 )...};
+        println( tail... );
+        ++nErrors;
+        return *this;
+    }
+
+    bool has_error() const
+    {
+        return nErrors;
+    }
+    void clear()
+    {
+        nErrors = 0;
+    }
+
+protected:
+    size_t nErrors = 0;
+};
+
 
 struct NullPrinter
 {

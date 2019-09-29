@@ -110,7 +110,7 @@ public:
     {
         return mThreadInfo[threadIdx].thread;
     }
-    ThreadData &thread_data( size_t threadIdx ) const
+    ThreadData &thread_data( size_t threadIdx )
     {
         return mThreadInfo[threadIdx].data;
     }
@@ -118,6 +118,11 @@ public:
     ThreadData &shared_data()
     {
         return mSharedData;
+    }
+
+    size_t thread_count() const
+    {
+        return mThreadInfo.size();
     }
 
 protected:
