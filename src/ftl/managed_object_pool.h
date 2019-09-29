@@ -69,6 +69,17 @@ struct StaticFnDeleter
     {
         deallocate( p );
     }
+
+    static void default_delete_func( void *, T *p )
+    {
+        static std::default_delete<T> del;
+        del( p );
+    }
+    static const StaticFnDeleter &get_default()
+    {
+        static StaticFnDeleter del( default_delete_func, D{} );
+        return del;
+    }
 };
 template<class ObjT>
 class Deletable
@@ -93,7 +104,7 @@ public:
             auto pFun = mDel.pDelFn;
             mDel.pDelFn = nullptr;
             static_cast<ObjT>( this )->~ObjT();
-            ( *pFun )( mDel.pDeleter, static_cast<ObjT>( this ) );
+            ( *pFun )( mDel.pDeleter, static_cast<ObjT *>( this ) );
         }
     }
 
