@@ -2,6 +2,7 @@
 #include <thread>
 #include <functional>
 #include <atomic>
+#include <list>
 
 namespace ftl
 {
@@ -20,11 +21,12 @@ template<class Task, class TaskQ, class ThreadData = void *, class SharedData = 
 class ThreadArray
 {
 public:
+    using ThreadIndex = size_t;
     using this_type = ThreadArray;
-    using IdleTask = std::function<void( size_t )>;
+    using IdleTask = std::function<void( ThreadIndex )>;
     struct NoopTask
     {
-        void operator()( size_t ) const
+        void operator()( ThreadIndex ) const
         {
         }
     };
@@ -54,22 +56,23 @@ public:
         mStatus = WORKING;
         for ( size_t i = 0; i < nThread; ++i )
         {
-            mThreadInfo.emplace_back( ThreadInfo{tdata, taskQ, std::thread( [this, me = this, threadIdx = i] {
-                                                     mActiveThreads.fetch_add( 1 );
-                                                     auto &taskQ = mThreadInfo[threadIdx].taskQ;
-                                                     while ( true )
-                                                     {
-                                                         for ( auto pTask = taskQ.top(); pTask; pTask = taskQ.top() )
-                                                         {
-                                                             ( *pTask )( threadIdx );
-                                                             taskQ.pop();
-                                                         }
-                                                         if ( mStatus.load() == STOPPING )
-                                                             break;
-                                                         mIdleTask( threadIdx );
-                                                     }
-                                                     mActiveThreads.fetch_sub( 1 );
-                                                 } )} );
+            auto &info = mThreadInfo.emplace_back( ThreadInfo{tdata, taskQ, std::thread{}} );
+            info.thread = std::thread( [this, me = this, threadIdx = i] {
+                mActiveThreads.fetch_add( 1 );
+                auto &taskQ = mThreadInfo[threadIdx].taskQ;
+                while ( true )
+                {
+                    for ( auto pTask = taskQ.top(); pTask; pTask = taskQ.top() )
+                    {
+                        ( *pTask )( threadIdx );
+                        taskQ.pop();
+                    }
+                    if ( mStatus.load() == STOPPING )
+                        break;
+                    mIdleTask( threadIdx );
+                }
+                mActiveThreads.fetch_sub( 1 );
+            } );
         }
     }
 
@@ -93,24 +96,28 @@ public:
         }
     }
 
+    bool thread_exists( ThreadIndex threadIdx ) const
+    {
+        return mThreadInfo.size() > threadIdx;
+    }
     // @brief Put task onto thread queue.
-    bool put_task( size_t threadIdx, const Task &task )
+    bool put_task( ThreadIndex threadIdx, const Task &task )
     {
         return mThreadInfo[threadIdx].taskQ.push( task );
     }
 
     // @brief Put task onto thread queue.
     template<class... Args>
-    bool emplace_task( size_t threadIdx, Args &&... args )
+    bool emplace_task( ThreadIndex threadIdx, Args &&... args )
     {
         return mThreadInfo[threadIdx].taskQ.emplace( std::forward<Args>( args )... );
     }
 
-    const std::thread &thread( size_t threadIdx ) const
+    const std::thread &thread( ThreadIndex threadIdx ) const
     {
         return mThreadInfo[threadIdx].thread;
     }
-    ThreadData &thread_data( size_t threadIdx )
+    ThreadData &thread_data( ThreadIndex threadIdx )
     {
         return mThreadInfo[threadIdx].data;
     }
@@ -120,7 +127,15 @@ public:
         return mSharedData;
     }
 
-    size_t thread_count() const
+    size_t size() const
+    {
+        return mThreadInfo.size();
+    }
+    ThreadIndex begin()
+    {
+        return 0;
+    }
+    ThreadIndex end()
     {
         return mThreadInfo.size();
     }
@@ -148,4 +163,6 @@ protected:
     std::atomic<unsigned> mActiveThreads{0};
     std::atomic<Status> mStatus{INIT};
 };
+
+
 } // namespace ftl
