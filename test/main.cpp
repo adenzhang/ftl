@@ -83,31 +83,31 @@ int main_app()
     return 0;
 }
 
-int main( int argc, char *argv[] )
+int main( int argc, const char *argv[] )
 {
     //========= RUN C++ TESTS ==================================
 
-    int iRet = 1;
-    {
-        Catch::Session session;
+    return unittests_main( argc, argv );
+    //    {
+    //        Catch::Session session;
 
-        iRet = session.applyCommandLine( argc, argv );
+    //        iRet = session.applyCommandLine( argc, argv );
 
-        if ( iRet == 0 )
-        {
-            session.configData().shouldDebugBreak = true;
-            session.configData().showDurations = Catch::ShowDurations::Always;
+    //        if ( iRet == 0 )
+    //        {
+    //            session.configData().shouldDebugBreak = true;
+    //            session.configData().showDurations = Catch::ShowDurations::Always;
 
-            const auto start = std::chrono::steady_clock::now();
-            iRet = session.run();
-            const auto stop = std::chrono::steady_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::microseconds>( stop - start );
-            std::printf( "\n===============================================================================\n"
-                         "Tests took %ld us\n"
-                         "===============================================================================\n\n",
-                         duration.count() );
-        }
-    }
+    //            const auto start = std::chrono::steady_clock::now();
+    //            iRet = session.run();
+    //            const auto stop = std::chrono::steady_clock::now();
+    //            auto duration = std::chrono::duration_cast<std::chrono::microseconds>( stop - start );
+    //            std::printf( "\n===============================================================================\n"
+    //                         "Tests took %ld us\n"
+    //                         "===============================================================================\n\n",
+    //                         duration.count() );
+    //        }
+    //    }
 
-    return iRet;
+    //    return iRet;
 }

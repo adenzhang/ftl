@@ -5,7 +5,7 @@
 
 using namespace ftl;
 
-TEST_FUNC( tagged_tuple_tests )
+ADD_TEST_FUNC( tagged_tuple_tests )
 {
 
     {

@@ -2,17 +2,17 @@
 #include <ftl/shared_object_pool.h>
 #include <iostream>
 
-namespace {
-struct A {
+namespace
+{
+struct A
+{
     int id;
     int pad;
-    A(int id = 0)
-        : id(id)
+    A( int id = 0 ) : id( id )
     {
         std::cout << "A()" << id << std::endl;
     }
-    A(const A& a)
-        : id(a.id)
+    A( const A &a ) : id( a.id )
     {
         std::cout << "A(A)" << id << std::endl;
     }
@@ -22,26 +22,27 @@ struct A {
     }
 };
 typedef ::std::shared_ptr<A> APtr;
-}
+} // namespace
 
-TEST_CASE("test_shared_object_pool", "")
+ADD_TEST_FUNC( test_shared_object_pool )
 {
     using namespace ftl;
     typedef shared_object_pool<A> SharedAPool;
     using FixedAPool = fixed_shared_pool<A, 2>;
 
-    struct my {
+    struct my
+    {
         static APtr getObject()
         {
             auto pool = SharedAPool::create_me();
             static int count = 0;
-            return pool->create_shared(++count);
+            return pool->create_shared( ++count );
         }
         static APtr getObjectFromFixedPool()
         {
             auto pool = FixedAPool::create_me();
             static int count = 0;
-            return pool->create_shared(++count);
+            return pool->create_shared( ++count );
         }
     };
     //    SECTION("TestShared")
@@ -57,7 +58,7 @@ TEST_CASE("test_shared_object_pool", "")
     //        }
 
     //    }
-    SECTION("TestFixedShared")
+    //    SECTION( "TestFixedShared" )
     {
         APtr a;
         {
@@ -65,9 +66,9 @@ TEST_CASE("test_shared_object_pool", "")
             a = my::getObjectFromFixedPool();
             b = my::getObjectFromFixedPool();
             c = my::getObjectFromFixedPool();
-            REQUIRE(APtr() != a);
-            REQUIRE(APtr() != b);
-            REQUIRE(c);
+            REQUIRE( APtr() != a );
+            REQUIRE( APtr() != b );
+            REQUIRE( c );
 
             std::cout << "Got A:" << a->id << std::endl;
             b = a;
@@ -77,11 +78,11 @@ TEST_CASE("test_shared_object_pool", "")
             //
             auto pool = FixedAPool::create_me();
             size_t count = 10;
-            a = pool->create_shared(++count);
-            b = pool->create_shared(++count);
-            c = pool->create_shared(++count);
-            REQUIRE(!!b);
-            REQUIRE(!c);
+            a = pool->create_shared( ++count );
+            b = pool->create_shared( ++count );
+            c = pool->create_shared( ++count );
+            REQUIRE( !!b );
+            REQUIRE( !c );
         }
     }
 }

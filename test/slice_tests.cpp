@@ -1,7 +1,7 @@
 #include "ftl/slice.h"
 #include <ftl/ftl.h>
 
-TEST_FUNC( slice_tests )
+ADD_TEST_FUNC( slice_tests )
 {
     //    if ( 1 )
     {
