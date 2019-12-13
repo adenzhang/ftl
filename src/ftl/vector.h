@@ -1,11 +1,34 @@
+/*
+ * This file is part of the ftl (Fast Template Library) distribution (https://github.com/adenzhang/ftl).
+ * Copyright (c) 2018 Aden Zhang.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, version 3.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #pragma once
 #include <type_traits>
 #include <memory>
 #include <cstring>
 
+/// @brief Generic VectorBase<T, BuferSize, Alloc, bool HasSizeVar, bool HasNullValue>.
+/// It can be used as inplace vector/string, small-buffer-optimized vector/string, and dynamic allocated vector/string.
+/// See Vector, Array (inplace array), InplaceCStr (inplace null terminated c string), CharCStr.
+///
+
+
 namespace ftl
 {
-
+/// @class arrayview View of buffer.
 template<typename T, bool HasCapacity = true>
 struct arrayview;
 
@@ -76,7 +99,7 @@ struct arrayview<T, false>
         return this_type( m_data + pos, maxlen );
     }
 
-private:
+protected:
     T *m_data = nullptr;
     size_t m_size = 0;
 };
@@ -134,6 +157,12 @@ struct arrayview<T, true> : public arrayview<T, false>
         return false;
     }
 
+    void clear()
+    {
+        while ( size() )
+            pop_back();
+    }
+
     this_type sub( size_t pos, size_t maxlen = std::numeric_limits<size_t>::max() ) const
     {
         if ( pos >= base_type::m_size )
@@ -142,8 +171,7 @@ struct arrayview<T, true> : public arrayview<T, false>
         return this_type( base_type::m_data + pos, maxlen, m_cap - pos );
     }
 
-
-private:
+protected:
     size_t m_cap;
 };
 
@@ -157,13 +185,13 @@ arrayview<T, true> make_view( T *p, size_t n, size_t cap )
 {
     return {p, n, cap};
 }
-arrayview<const char, false> make_view( const char *p )
+inline arrayview<const char, false> make_view( const char *p )
 {
     return {p, std::strlen( p )};
 }
 
 /// T: element type.
-/// N: inplace element capacity.
+/// N: inplace buffer size.
 template<class Impl,
          class T,
          size_t N,
@@ -195,11 +223,12 @@ struct SboStorage<Impl, T, N, Alloc, HasSizeVar, HasNullValue, NullType, NullVal
     }
     constexpr size_t capacity() const
     {
+        return HasNullValue ? ( N - 1 ) : N;
         return N;
     }
-    constexpr size_t max_size() const
+    constexpr size_t buffer_size() const
     {
-        return HasNullValue ? ( N - 1 ) : N; // todo if HasNull, capacity-1;
+        return N;
     }
     size_t size() const
     {
@@ -212,7 +241,7 @@ struct SboStorage<Impl, T, N, Alloc, HasSizeVar, HasNullValue, NullType, NullVal
 
     bool reserve( size_t n )
     {
-        return n <= max_size();
+        return n <= capacity();
     }
 
     void set_size( size_t n )
@@ -259,11 +288,12 @@ struct SboStorage<Impl,
     }
     constexpr size_t capacity() const
     {
+        return HasNullValue ? ( N - 1 ) : N;
         return N;
     }
-    constexpr size_t max_size() const
+    constexpr size_t buffer_size() const
     {
-        return HasNullValue ? ( N - 1 ) : N; // todo if HasNull, capacity-1;
+        return N;
     }
     size_t size() const
     {
@@ -279,7 +309,7 @@ struct SboStorage<Impl,
 
     bool reserve( size_t n )
     {
-        return n <= max_size();
+        return n <= capacity();
     }
     void set_size( size_t n )
     {
@@ -320,20 +350,20 @@ struct SboStorage<Impl,
     void destroy()
     {
         if ( !using_inplace() && m_begin )
-            m_alloc.deallocate( m_begin, m_capacity );
+            m_alloc.deallocate( m_begin, m_bufferSize );
     }
 
     T *begin()
     {
         return m_begin;
     }
+    size_t buffer_size() const
+    {
+        return m_bufferSize;
+    }
     size_t capacity() const
     {
-        return m_capacity;
-    }
-    size_t max_size() const
-    {
-        return HasNullValue ? ( capacity() - 1 ) : capacity();
+        return HasNullValue ? ( m_bufferSize - 1 ) : m_bufferSize;
     }
     size_t size() const
     {
@@ -346,11 +376,11 @@ struct SboStorage<Impl,
 
     bool reserve( size_t n )
     {
-        if ( n <= max_size() )
+        if ( n <= capacity() )
             return true;
         auto newCap = HasNullValue ? ( n + 1 ) : n;
-        if ( m_size == max_size() )
-            newCap = std::max( 2 * m_capacity, newCap ); // double capacity
+        if ( m_size == capacity() )
+            newCap = std::max( 2 * m_bufferSize, newCap ); // double capacity
         auto pBuf = m_alloc.allocate( newCap );
         if ( !pBuf )
             return false;
@@ -363,9 +393,9 @@ struct SboStorage<Impl,
         if constexpr ( HasNullValue )
             *pDest = NullValue;
         if ( !using_inplace() )
-            m_alloc.deallocate( m_begin, m_capacity );
+            m_alloc.deallocate( m_begin, m_bufferSize );
         m_begin = pBuf;
-        m_capacity = newCap;
+        m_bufferSize = newCap;
         return true;
     }
 
@@ -394,10 +424,10 @@ struct SboStorage<Impl,
     {
         if ( using_inplace() )
             return {};
-        arrayview<T> res{m_begin, m_size, m_capacity};
+        arrayview<T> res{m_begin, m_size, m_bufferSize};
         m_begin = reinterpret_cast<T *>( &m_data[0] );
         m_size = 0;
-        m_capacity = N;
+        m_bufferSize = N;
         return res;
     }
 
@@ -407,7 +437,7 @@ struct SboStorage<Impl,
         static_cast<Impl *>( this )->~Impl();
         m_begin = s.begin();
         m_size = s.size();
-        m_capacity = s.capacity();
+        m_bufferSize = s.capacity();
         if constexpr ( HasNullValue )
             m_begin[m_size] = NullValue;
     }
@@ -416,7 +446,7 @@ private:
     Alloc m_alloc;
     T *m_begin = nullptr;
     size_type m_size = 0;
-    size_type m_capacity = N;
+    size_type m_bufferSize = N;
     typename std::aligned_storage<sizeof( T ), alignof( T )>::type m_data[N];
 };
 
@@ -446,33 +476,33 @@ struct SboStorage<Impl,
     void destroy()
     {
         if ( m_begin )
-            m_alloc.deallocate( m_begin, m_capacity );
+            m_alloc.deallocate( m_begin, m_bufferSize );
     }
 
     T *begin()
     {
         return reinterpret_cast<T *>( m_begin );
     }
-    size_type capacity() const
-    {
-        return m_capacity;
-    }
     size_type size() const
     {
         return m_size;
     }
-    size_type max_size() const
+    size_type buffer_size() const
     {
-        return HasNullValue ? ( capacity() - 1 ) : capacity();
+        return m_bufferSize;
+    }
+    size_type capacity() const
+    {
+        return HasNullValue ? ( m_bufferSize - 1 ) : m_bufferSize;
     }
 
     bool reserve( size_t n )
     {
-        if ( n <= max_size() )
+        if ( n <= capacity() )
             return true;
         auto newCap = HasNullValue ? ( n + 1 ) : n;
-        if ( m_size == max_size() )
-            newCap = std::max( 2 * m_capacity, newCap ); // double capacity
+        if ( m_size == capacity() )
+            newCap = std::max( 2 * m_bufferSize, newCap ); // double capacity
         auto pBuf = m_alloc.allocate( newCap );
         if ( !pBuf )
             return false;
@@ -485,9 +515,9 @@ struct SboStorage<Impl,
         if constexpr ( HasNullValue )
             *pDest = NullValue;
         if ( !using_inplace() )
-            m_alloc.deallocate( m_begin, m_capacity );
+            m_alloc.deallocate( m_begin, m_bufferSize );
         m_begin = pBuf;
-        m_capacity = newCap;
+        m_bufferSize = newCap;
         return true;
     }
 
@@ -514,10 +544,10 @@ struct SboStorage<Impl,
 
     arrayview<T> try_moveout()
     {
-        arrayview<T> res{m_begin, m_size, m_capacity};
+        arrayview<T> res{m_begin, m_size, m_bufferSize};
         m_begin = nullptr;
         m_size = 0;
-        m_capacity = 0;
+        m_bufferSize = 0;
         return res;
     }
 
@@ -527,7 +557,7 @@ struct SboStorage<Impl,
         static_cast<Impl *>( this )->~Impl();
         m_begin = s.begin();
         m_size = s.size();
-        m_capacity = s.capacity();
+        m_bufferSize = s.capacity();
         if constexpr ( HasNullValue )
             m_begin[m_size] = NullValue;
     }
@@ -536,7 +566,7 @@ private:
     Alloc m_alloc;
     T *m_begin = nullptr;
     size_type m_size = 0;
-    size_type m_capacity = 0;
+    size_type m_bufferSize = 0;
 };
 
 template<class T,
@@ -562,18 +592,20 @@ public:
     using value_type = T;
     using pointer_type = T *;
     using reference_type = T &;
+    using const_reference_type = const T &;
 
     using base_type::begin;
+    using base_type::buffer_size;
     using base_type::capacity;
-    using base_type::max_size;
     using base_type::reserve;
     using base_type::size;
 
     using iterator = pointer_type;
     using const_iterator = const T *;
 
-    static constexpr size_t inplace_capacity = N;
+    static constexpr size_t inplace_buffer_size = N;
     static constexpr bool is_string = HasNullValue;
+    static constexpr size_t inplace_capacity = is_string ? ( N > 0 ? ( N - 1 ) : 0 ) : N;
     static constexpr bool has_allocator = !std::is_same_v<Alloc, void>;
 
     static constexpr auto npos = std::numeric_limits<size_t>::max();
@@ -596,16 +628,22 @@ public:
         push_back( il );
     }
 
-    // it's a string todo
-    //    template<class Iter, typename std::enable_if_t<HasNullValue && std::is_same_v<const decltype( *std::declval<Iter>() ), const T &>>>
-    //    VectorBase( Iter it )
-    //    {
-    //        push_back_iter( it );
-    //    }
+    // todo: requires is_constructible<T, *Iter>
+    template<class Iter, typename std::enable_if_t<HasNullValue && std::is_same_v<const decltype( *std::declval<Iter>() ), const T &>>>
+    VectorBase( Iter it )
+    {
+        push_back_iter( it );
+    }
 
-    VectorBase( size_t n, const T &v )
+    VectorBase( size_t n, const T &v = T{} )
     {
         push_back( v, n );
+    }
+
+    template<typename U, size_t M>
+    VectorBase( U ( &a )[M] )
+    {
+        push_back_iter( &a[0], M );
     }
 
     // has alloc
@@ -633,7 +671,7 @@ public:
              typename = std::enable_if_t<std::is_same_v<A, Alloc> && !std::is_same_v<void, A>, void>>
     VectorBase( VectorBase<U, M, A, bSize, bNull, NullT, NullV> &&a ) : base_type( std::move( a.get_allocator() ) )
     {
-        if ( !a.using_inplace() && ( !is_string || a.capacity() > a.size() ) )
+        if ( !a.using_inplace() && ( !is_string || a.buffer_size() > a.size() ) )
         {
             auto slice = a.try_moveout();
             base_type::movein( slice );
@@ -646,7 +684,6 @@ public:
 
     // no alloc or not same alloc
     template<class U, size_t M, class A, bool bSize, bool bNull, class NullT, NullT NullV>
-    //             typename = std::enable_if_t<!std::is_same_v<A, Alloc> || std::is_same_v<void, A>, void>>
     VectorBase( const VectorBase<U, M, A, bSize, bNull, NullT, NullV> &a )
     {
         push_back_iter( a.begin(), a.end() );
@@ -711,6 +748,13 @@ public:
         return *this;
     }
 
+    template<class U, size_t M>
+    this_type &operator+=( U ( &a )[M] )
+    {
+        push_back_iter( &a[0], M );
+        return *this;
+    }
+
     template<bool isString = HasNullValue>
     this_type substr( size_t pos = 0, size_t n = npos ) const
     {
@@ -751,6 +795,22 @@ public:
     {
         return *( begin() + n );
     }
+    const T &front() const
+    {
+        return *begin();
+    }
+    T &front()
+    {
+        return *begin();
+    }
+    const T &back() const
+    {
+        return *( begin() + size - 1 );
+    }
+    T &back()
+    {
+        return *( begin() + size() - 1 );
+    }
 
     const arrayview<const T> sub_view( size_t pos, size_t maxlen = std::numeric_limits<size_t>::max() ) const
     {
@@ -758,7 +818,7 @@ public:
         if ( pos >= nsize )
             return {};
         maxlen = std::min( maxlen, nsize - pos );
-        return {begin() + pos, maxlen, capacity()};
+        return {begin() + pos, maxlen, buffer_size()};
     }
 
     this_type sub( size_t pos, size_t maxlen = std::numeric_limits<size_t>::max() ) const
@@ -769,7 +829,6 @@ public:
         maxlen = std::min( maxlen, nsize - pos );
         return this_type( begin() + pos, begin() + pos + maxlen );
     }
-
 
     template<class... Args>
     T *emplace_back( Args &&... args )
@@ -795,8 +854,28 @@ public:
             auto pElem = pbegin + nsize - i - 1;
             pElem->~T();
         }
-        set_size( nsize - n );
+        base_type::set_size( nsize - n );
         return nsize - n;
+    }
+
+    /// If elememts are dynamically allocated, shrink the capacity to std::max(size(), minReserve).
+    void shrink_to_fit( size_t minReserve = 0 )
+    {
+        if constexpr ( has_allocator )
+        {
+            auto nReserve = std::max( size(), minReserve );
+            if ( !base_type::using_inplace() && capacity() > nReserve )
+            {
+                auto view = base_type::try_moveout();
+                this->~this_type();
+                new ( this ) this_type();
+                reserve( nReserve );
+                push_back_moveiter( view.begin(), view.end() );
+
+                view.clear();
+                base_type::get_allocator().deallocate( view.begin(), view.capacity() );
+            }
+        }
     }
 
     void clear()
@@ -872,18 +951,49 @@ public:
         return nsize + n;
     }
 
+    template<class Iter>
+    size_t push_back_iter( Iter it, size_t maxlen )
+    {
+        if constexpr ( is_string )
+        {
+            auto n = size();
+            for ( size_t i = 0; *it != NullValue && i < maxlen; ++n, ++it, ++i )
+            {
+                if ( !reserve( n + 1 ) )
+                    break;
+                new ( begin() + n ) T( *it );
+                base_type::set_size( n + 1 );
+            }
+            return n;
+        }
+        else
+        {
+            size_t n = maxlen;
+            auto nsize = size();
+            if ( !reserve( nsize + n ) )
+                return npos;
+            auto pbegin = base_type::begin();
+            for ( size_t i = 0; i < n; ++i, ++it )
+            {
+                new ( pbegin + nsize + i ) T( *it );
+            }
+            base_type::set_size( nsize + n );
+            return nsize + n;
+        }
+    }
+
     // if it's a string
     template<class Iter, bool bNull = HasNullValue, typename = std::enable_if_t<bNull, void>>
     size_t push_back_iter( Iter it )
     {
         auto n = size();
-        for ( auto pbegin = begin(); *it != NullValue; ++n )
+        for ( ; *it != NullValue; ++n )
         {
             if ( !reserve( n + 1 ) )
                 break;
-            new ( pbegin + n ) T( *it );
+            new ( begin() + n ) T( *it );
+            base_type::set_size( n + 1 );
         }
-        base_type::set_size( n );
         return n;
     }
 
@@ -903,98 +1013,98 @@ public:
         return nsize + n;
     }
 
-    template<class Pred>
-    iterator remove_if( Pred &&pred )
-    {
-        auto newEnd = begin(), itEnd = end();
-        for ( auto it = newEnd; it != itEnd; ++it )
-        {
-            if ( pred( *it ) )
-            {
-                if ( newEnd == it ) // first one to remove
-                    ++newEnd;
-            }
-            else
-            {
-                if ( newEnd != it )
-                    std::swap( *newEnd, *it );
-                ++newEnd;
-            }
-        }
-        return newEnd;
-    }
-
     void erase( iterator it, iterator itEnd )
     {
         auto n = std::distance( it, itEnd );
         if ( n > 0 )
         {
+            for ( auto pend = end(); itEnd != pend; ++itEnd, ++it )
+                std::swap( *it, *itEnd );
             for ( ; it != itEnd; ++it )
                 it->~T();
-            set_size( size() - n );
+            base_type::set_size( size() - n );
         }
     }
 
+    template<class Iter>
+    int compare( Iter it, size_t n ) const
+    {
+        auto it0 = begin(), it1 = end();
+        for ( size_t i = 0; i < n; ++it, ++i, ++it0 )
+        {
+            if constexpr ( is_string )
+            {
+                if ( *it == NullValue )
+                    break;
+            }
+            if ( it0 == it1 )
+                return -1;
+            if ( *it == *it0 )
+                continue;
+            if ( *it0 < *it )
+                return -1;
+            return 1;
+        }
+        return it0 == it1 ? 0 : 1;
+    }
+
+    // todo: requires T() < *Iterable::begin(), T() == *Iterable::begin().
     template<class Iterable>
     int compare( const Iterable &a ) const
     {
-        auto it = begin(), itEnd = end();
-        for ( const auto &e : a )
-        {
-            if ( it == itEnd )
-                return -1;
-            auto &v = *( it++ );
-            if ( e == v )
-                continue;
-            if ( v < e )
-                return -1;
-            else
-                return 1;
-        }
-        return it == itEnd ? 0 : 1;
+        return compare( std::begin( a ), std::end( a ) );
     }
 
     template<class Iter>
     int compare( Iter i, Iter iEnd ) const
     {
         auto it = begin(), itEnd = end();
-        for ( ; i != iEnd; ++i )
+        for ( ; i != iEnd; ++i, ++it )
         {
             if ( it == itEnd )
                 return -1;
-            auto &v = *( it++ );
+            auto &v = *it;
             if ( *i == v )
                 continue;
             if ( v < *i )
                 return -1;
-            else
-                return 1;
+            return 1;
         }
         return it == itEnd ? 0 : 1;
     }
 
+    // todo: requires T() < *Iterable::begin(), T() == *Iterable::begin().
     template<class Iterable>
     bool operator==( const Iterable &a ) const
     {
         return compare( a ) == 0;
     }
 
+    // todo: requires T() < *Iterable::begin(), T() == *Iterable::begin().
     template<class Iterable>
     bool operator!=( const Iterable &a ) const
     {
         return compare( a ) != 0;
     }
 
+    // todo: requires T() < *Iterable::begin(), T() == *Iterable::begin().
     template<class Iterable>
     bool operator<=( const Iterable &a ) const
     {
         return compare( a ) <= 0;
     }
 
+    // todo: requires T() < *Iterable::begin(), T() == *Iterable::begin().
     template<class Iterable>
     bool operator<( const Iterable &a ) const
     {
         return compare( a ) < 0;
+    }
+
+    template<class U, size_t M>
+    bool operator==( U ( &a )[M] ) const
+    {
+        return 0 == compare( &a[0], M );
     }
 };
 
