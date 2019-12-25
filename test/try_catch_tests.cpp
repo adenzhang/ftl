@@ -1,5 +1,5 @@
 #include <cstdlib>
-#include <ftl/catch_or_ignore.h>
+#include <ftl/unittest.h>
 #include <ftl/out_printer.h>
 #include <signal.h>
 #include <thread>

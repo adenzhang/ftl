@@ -1,5 +1,5 @@
 #include "ftl/managed_object_pool.h"
-#include <ftl/catch_or_ignore.h>
+#include <ftl/unittest.h>
 
 #include <cassert>
 #include <chrono>

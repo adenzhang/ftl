@@ -1,4 +1,4 @@
-#include <ftl/catch_or_ignore.h>
+#include <ftl/unittest.h>
 #include <ftl/shared_object_pool.h>
 #include <iostream>
 

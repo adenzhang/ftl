@@ -1,6 +1,6 @@
 #include <ftl/reactors.h>
 
-#include <ftl/catch_or_ignore.h>
+#include <ftl/unittest.h>
 #include <iostream>
 #include <sstream>
 #include <vector>

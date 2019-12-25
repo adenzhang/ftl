@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <ftl/catch_or_ignore.h>
+#include <ftl/unittest.h>
 
 #include <algorithm>
 #include <bitset>

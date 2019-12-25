@@ -1,8 +1,9 @@
-#include <ftl/catch_or_ignore.h>
+#include <ftl/unittest.h>
 #include <ftl/flat_ordered_map.h>
 
 ADD_TEST_FUNC( FlatOrderedMap_tests )
 {
+    SECTION( "int map" )
     {
         ftl::FlatOrderedMap<int, int> m = {{2, 3}, {1, 4}};
         REQUIRE( m.front().first == 1 && m.size() == 2 );
@@ -11,6 +12,7 @@ ADD_TEST_FUNC( FlatOrderedMap_tests )
         m.erase( -1 );
         REQUIRE( m.front().first == 1 && m.size() == 2 );
     }
+    SECTION( "string map" )
     {
         ftl::FlatOrderedSet<std::string> s{"cd", "ab"};
         REQUIRE( s.front() == "ab" );
