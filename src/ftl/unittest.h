@@ -15,6 +15,14 @@
 
 #define ASSERT( expr, ... ) assert( ( expr ) && ( "error:" __VA_ARGS__ ) )
 
+#define EXIT_OR_THROW( ERRORSTR, EXCEPTIONTYPE )                                                                                                    \
+    if ( DoesAbortOnError() )                                                                                                                       \
+    {                                                                                                                                               \
+        GetOStream() << ERRORSTR << std::endl << std::flush;                                                                                        \
+        abort();                                                                                                                                    \
+    }                                                                                                                                               \
+    else                                                                                                                                            \
+        throw EXCEPTIONTYPE( ERRORSTR.c_str() );
 
 #define REQUIRE_OP( OP, X, Y, ... )                                                                                                                 \
     do                                                                                                                                              \
@@ -26,7 +34,7 @@
             std::stringstream ss;                                                                                                                   \
             ss << "EQEvaluationError in " __FILE__ ":" T_TOSTRING( __LINE__ ) ". Expected:\"" #X " " #OP " " #Y << "\", got " << rx << " " #OP " "  \
                << ry << ". Desc:\"" __VA_ARGS__ << "\"";                                                                                            \
-            throw UnitTestException( ss.str().c_str() );                                                                                            \
+            EXIT_OR_THROW( ss.str(), UnitTestRequireException );                                                                                    \
         }                                                                                                                                           \
     } while ( false )
 
@@ -40,7 +48,7 @@
         {                                                                                                                                           \
             std::stringstream ss;                                                                                                                   \
             ss << "EvaluationError in " __FILE__ ":" T_TOSTRING( __LINE__ ) ". Expr:\"" #expr << "\", Desc:\"" __VA_ARGS__ << "\"";                 \
-            throw UnitTestRequireException( ss.str().c_str() );                                                                                     \
+            EXIT_OR_THROW( ss.str(), UnitTestRequireException );                                                                                    \
         }                                                                                                                                           \
     } while ( false )
 
@@ -57,10 +65,10 @@
         }                                                                                                                                           \
         std::stringstream ss;                                                                                                                       \
         ss << "NoThrowError in " __FILE__ ":" T_TOSTRING( __LINE__ ) ". Expr:\"" #expr << "\", Desc:\"" __VA_ARGS__ << "\"";                        \
-        throw UnitTestRequireException( ss.str().c_str() );                                                                                         \
+        EXIT_OR_THROW( ss.str(), UnitTestRequireException );                                                                                        \
     } while ( false )
 
-#define SECTION( name, ... ) for ( auto ok = AddSectionName( name ); ok; throw UnitTestRerunException( name ) )
+#define SECTION( name, ... ) for ( auto ok = StartSection( name ); ok; throw UnitTestRerunException( name ) )
 
 struct UnitTestRequireException : public std::runtime_error
 {
@@ -76,40 +84,6 @@ struct UnitTestRerunException : public std::runtime_error
     }
 };
 
-////////////////// static Unitests /////////////////////////////
-
-#define TEST_FUNC( funcName, ... )                                                                                                                  \
-    static struct funcName##_runner                                                                                                                 \
-    {                                                                                                                                               \
-        void funcName();                                                                                                                            \
-        funcName##_runner()                                                                                                                         \
-        {                                                                                                                                           \
-            std::cout << "++ Start test " << #funcName << ": " __VA_ARGS__ << std::endl;                                                            \
-            auto timeStart = std::chrono::steady_clock::now();                                                                                      \
-            for ( bool rerun = true; rerun; )                                                                                                       \
-            {                                                                                                                                       \
-                try                                                                                                                                 \
-                {                                                                                                                                   \
-                    funcName();                                                                                                                     \
-                    rerun = false;                                                                                                                  \
-                }                                                                                                                                   \
-                catch ( const UnitTestRerunException & )                                                                                            \
-                {                                                                                                                                   \
-                    os << "  Section completed: " << m_name << "/" << e.what() << "\n";                                                             \
-                }                                                                                                                                   \
-            }                                                                                                                                       \
-            auto timeDiff = std::chrono::steady_clock::now() - timeStart;                                                                           \
-            std::cout << "-- Test ended " << #funcName << ", time elapsed (ns): " << timeDiff.count() << std::endl << std::endl;                    \
-        }                                                                                                                                           \
-        bool AddSectionName( const std::string &section )                                                                                           \
-        {                                                                                                                                           \
-            return m_executedSections.insert( section ).second;                                                                                     \
-        }                                                                                                                                           \
-        std::unordrered_set<std::string> m_executedSections;                                                                                        \
-    } s_##funcName##_runner__;                                                                                                                      \
-    void funcName##_runner::funcName()
-
-
 ////////////////// Managed Unitests /////////////////////////////
 
 struct UnitTestCaseBase;
@@ -120,6 +94,7 @@ struct UnitTestRegistration
     std::string currentTest;
     int errCount = 0;
     std::ostream *os = &std::cout;
+    bool abortOnError = false;
 };
 
 template<class UnitTestRegistrationT = UnitTestRegistration>
@@ -142,13 +117,22 @@ struct UnitTestCaseBase
         t_get_unittest_registration().tests[name] = this;
         t_get_unittest_registration().testNames.push_back( name );
     }
-    bool AddSectionName( const std::string &section )
+    bool StartSection( const std::string &section )
     {
-        return m_executedSections.insert( section ).second;
+        if ( m_executedSections.insert( section ).second )
+        {
+            m_currSection = section;
+            return true;
+        }
+        return false;
+    }
+    std::string GetCurrentSection() const
+    {
+        return m_currSection;
     }
     void RunTest()
     {
-        auto &os = *t_get_unittest_registration().os;
+        auto &os = GetOStream();
         os << "++ Start test " << m_name << std::endl;
         t_get_unittest_registration().currentTest = m_name;
         auto timeStart = std::chrono::steady_clock::now();
@@ -156,6 +140,7 @@ struct UnitTestCaseBase
         {
             try
             {
+                m_currSection.clear();
                 this->RunTestImpl();
                 rerun = false;
             }
@@ -181,8 +166,19 @@ struct UnitTestCaseBase
     {
         return m_name;
     }
+    std::ostream &GetOStream()
+    {
+        return *t_get_unittest_registration().os;
+    }
+
+    bool DoesAbortOnError() const
+    {
+        return t_get_unittest_registration().abortOnError;
+    }
     std::unordered_set<std::string> m_executedSections;
     std::string m_name;
+    std::string m_currSection;
+    int m_requirements = 0;
 };
 
 #define ADD_TEST_FUNC( funcName, ... )                                                                                                              \
@@ -205,8 +201,9 @@ int unittests_main( int argn, const char *argv[] )
         {
             std::cout << err << std::endl;
         }
-        std::cout << "\n Usage: program [-l||--list] [-h|--help] [-exitonerror] [testnames...] [~excludedtests...] \n"
-                     "       ~excludedtests start with ~.\n\n ";
+        std::cout << "\n Usage: program [-l||--list] [-h|--help] [-onerror abort|return|continue] [testnames...] [~excludedtests...] \n"
+                     "    ~excludedtests start with ~.\n"
+                     "    -onerror abort: abort program; return, skip rest test cases; default continue to run other testcases.\n\n";
         return !err.empty();
     };
     auto printTestNames = [] {
@@ -233,12 +230,28 @@ int unittests_main( int argn, const char *argv[] )
         if ( a == "-h" || a == "--help" )
             return usage();
 
-        if ( a == "-exitonerror" )
-            a_exitOnError = true;
+        if ( a == "-onerror" )
+        {
+            if ( i == argn - 1 )
+                return usage( "No argument for -onerror" );
+            a = argv[++i];
+            if ( a == "abort" )
+                t_get_unittest_registration().abortOnError = true;
+            else if ( a == "return" )
+                a_exitOnError = true;
+            else if ( a == "continue" )
+                a_exitOnError = false;
+            else
+                return usage( "Wrong -onerror argument: " + a );
+        }
         else if ( argv[i][0] == '~' )
             blacklist.insert( &argv[i][1] );
         else
+        {
+            if ( !regs.tests.count( a ) )
+                return usage( "No test case found: " + a );
             whitelist.push_back( argv[i] );
+        }
     }
 
     const auto &testNames = whitelist.empty() ? regs.testNames : whitelist;
