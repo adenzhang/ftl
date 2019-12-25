@@ -5,7 +5,6 @@
 #include <sstream>
 #include <vector>
 #include <string>
-#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 #include <cassert>
@@ -23,6 +22,8 @@
     }                                                                                                                                               \
     else                                                                                                                                            \
         throw EXCEPTIONTYPE( ERRORSTR.c_str() );
+
+////////////////// unittest macros /////////////////////////////
 
 #define REQUIRE_OP( OP, X, Y, ... )                                                                                                                 \
     do                                                                                                                                              \
@@ -70,6 +71,34 @@
 
 #define SECTION( name, ... ) for ( auto ok = StartSection( name ); ok; throw UnitTestRerunException( name ) )
 
+#define ADD_TEST_FUNC( funcName, ... )                                                                                                              \
+    static struct funcName##_TestCase : public UnitTestCaseBase                                                                                     \
+    {                                                                                                                                               \
+        void RunTestImpl() override;                                                                                                                \
+        funcName##_TestCase() : UnitTestCaseBase( #funcName )                                                                                       \
+        {                                                                                                                                           \
+        }                                                                                                                                           \
+    } s_##funcName##_TestCase__;                                                                                                                    \
+    void funcName##_TestCase::RunTestImpl()
+
+#define STATIC_TEST_FUNC( funcName, ... )                                                                                                           \
+    static struct funcName##_TestCase : public UnitTestCaseBase                                                                                     \
+    {                                                                                                                                               \
+        void RunTestImpl() override;                                                                                                                \
+        funcName##_TestCase()                                                                                                                       \
+        {                                                                                                                                           \
+            m_name = #funcName;                                                                                                                     \
+            RunTest();                                                                                                                              \
+        }                                                                                                                                           \
+        bool DoesAbortOnError() const                                                                                                               \
+        {                                                                                                                                           \
+            return true;                                                                                                                            \
+        }                                                                                                                                           \
+    } s_##funcName##_TestCase__;                                                                                                                    \
+    void funcName##_TestCase::RunTestImpl()
+
+////////////////// unittest classes /////////////////////////////
+
 struct UnitTestRequireException : public std::runtime_error
 {
     UnitTestRequireException( const char *err ) : std::runtime_error( err )
@@ -83,8 +112,6 @@ struct UnitTestRerunException : public std::runtime_error
     {
     }
 };
-
-////////////////// Managed Unitests /////////////////////////////
 
 struct UnitTestCaseBase;
 struct UnitTestRegistration
@@ -108,6 +135,7 @@ struct UnitTestCaseBase
     virtual void RunTestImpl() = 0;
     virtual ~UnitTestCaseBase() = default;
 
+    UnitTestCaseBase() = default;
     UnitTestCaseBase( const std::string name ) : m_name( name )
     {
         if ( t_get_unittest_registration().tests.count( name ) )
@@ -181,20 +209,17 @@ struct UnitTestCaseBase
     int m_requirements = 0;
 };
 
-#define ADD_TEST_FUNC( funcName, ... )                                                                                                              \
-    static struct funcName##_TestCase : public UnitTestCaseBase                                                                                     \
-    {                                                                                                                                               \
-        void RunTestImpl() override;                                                                                                                \
-        funcName##_TestCase() : UnitTestCaseBase( #funcName )                                                                                       \
-        {                                                                                                                                           \
-        }                                                                                                                                           \
-    } s_##funcName##_TestCase__;                                                                                                                    \
-    void funcName##_TestCase::RunTestImpl()
+////////////////// unittests_main /////////////////////////////
 
+#define UNITTEST_MAIN                                                                                                                               \
+    int main( int argc, const char *argv[] )                                                                                                        \
+    {                                                                                                                                               \
+        return unittest_main( argc, argv );                                                                                                         \
+    }
 
 // unit tests main function
 template<class TestCase = UnitTestCaseBase>
-int unittests_main( int argn, const char *argv[] )
+int unittest_main( int argn, const char *argv[] )
 {
     auto usage = []( const std::string err = "" ) -> int {
         if ( !err.empty() )
@@ -286,9 +311,3 @@ int unittests_main( int argn, const char *argv[] )
     }
     return regs.errCount;
 }
-
-#define UNITTEST_MAIN                                                                                                                               \
-    int main( int argc, const char *argv[] )                                                                                                        \
-    {                                                                                                                                               \
-        return unittests_main( argc, argv );                                                                                                        \
-    }
