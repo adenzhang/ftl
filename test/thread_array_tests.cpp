@@ -4,7 +4,7 @@
 #include <ftl/ftl.h>
 
 
-ADD_TEST_FUNC( test_thread_array )
+ADD_TEST_CASE( test_thread_array )
 {
     using Task = std::function<void( size_t )>;
     using MPSCQue = ftl::MPSCBoundedQueue<Task>;

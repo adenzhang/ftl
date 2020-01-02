@@ -9,12 +9,49 @@
 #include <unordered_set>
 #include <cassert>
 
+/************************************************************************
+ *
+Usage:
+In main cpp file, use macro UNITTEST_MAIN to add main function.
+
+In test case file,
+
+  - use ADD_TEST_CASE(caseName, description) to add dynamic test cases.
+  - or use STATIC_TEST_CASE(caseName, description) to add a static test case that will run before main function runs.
+    static test case will still be called even UNITTEST_MAIN is not defined.
+
+  - In each test case, users can use: REQUIRE(expr, descr), REQUIRE_THROW, REQUIRE_EQ, REQUIRE_NE, or REQUIRE_OP.
+  - And SECTION( namestr, descr) can be used to add multiple sections when each section end, the test case will rerun from start.
+  E.g.
+  ADD_TEST_CASE( vector_tests, "test vector comparison")
+  {
+      std::vector<int> A = {1,3, 2}, B = {1,2,4};
+      SECTION( "sort and compare" )
+      {
+         std::sort(A.begin(), A.end());
+         std::sort(B.begin(), B.end());
+         REQUIRE_OP( <, A, B); // or REQUIRE(A < B)
+      }
+      SECTION( "compare") // A is still not sorted.
+      {
+        REQUIRE( A > B );
+      }
+  }
+
+When run the test main function, users can specify test cases to run or not. like:
+    mytestprogram vector_tests string_tests ~float_tests -onerror abort
+
+        ~testcase means not to run this testcase.
+*
+************************************************************************/
+
+
 #define T_STRINGIFY( x ) #x
 #define T_TOSTRING( x ) T_STRINGIFY( x )
 
 #define ASSERT( expr, ... ) assert( ( expr ) && ( "error:" __VA_ARGS__ ) )
 
-#define EXIT_OR_THROW( ERRORSTR, EXCEPTIONTYPE )                                                                                                    \
+#define T_EXIT_OR_THROW( ERRORSTR, EXCEPTIONTYPE )                                                                                                  \
     if ( DoesAbortOnError() )                                                                                                                       \
     {                                                                                                                                               \
         GetOStream() << ERRORSTR << std::endl << std::flush;                                                                                        \
@@ -28,6 +65,7 @@
 #define REQUIRE_OP( OP, X, Y, ... )                                                                                                                 \
     do                                                                                                                                              \
     {                                                                                                                                               \
+        ++m_requires;                                                                                                                               \
         auto rx = ( X );                                                                                                                            \
         auto ry = ( Y );                                                                                                                            \
         if ( !( rx OP ry ) )                                                                                                                        \
@@ -35,7 +73,7 @@
             std::stringstream ss;                                                                                                                   \
             ss << "EQEvaluationError in " __FILE__ ":" T_TOSTRING( __LINE__ ) ". Expected:\"" #X " " #OP " " #Y << "\", got " << rx << " " #OP " "  \
                << ry << ". Desc:\"" __VA_ARGS__ << "\"";                                                                                            \
-            EXIT_OR_THROW( ss.str(), UnitTestRequireException );                                                                                    \
+            T_EXIT_OR_THROW( ss.str(), UnitTestRequireException );                                                                                  \
         }                                                                                                                                           \
     } while ( false )
 
@@ -45,17 +83,19 @@
 #define REQUIRE( expr, ... )                                                                                                                        \
     do                                                                                                                                              \
     {                                                                                                                                               \
+        ++m_requires;                                                                                                                               \
         if ( !( expr ) )                                                                                                                            \
         {                                                                                                                                           \
             std::stringstream ss;                                                                                                                   \
             ss << "EvaluationError in " __FILE__ ":" T_TOSTRING( __LINE__ ) ". Expr:\"" #expr << "\", Desc:\"" __VA_ARGS__ << "\"";                 \
-            EXIT_OR_THROW( ss.str(), UnitTestRequireException );                                                                                    \
+            T_EXIT_OR_THROW( ss.str(), UnitTestRequireException );                                                                                  \
         }                                                                                                                                           \
     } while ( false )
 
 #define REQUIRE_THROW( expr, exception, ... )                                                                                                       \
     do                                                                                                                                              \
     {                                                                                                                                               \
+        ++m_requires;                                                                                                                               \
         try                                                                                                                                         \
         {                                                                                                                                           \
             expr;                                                                                                                                   \
@@ -66,12 +106,12 @@
         }                                                                                                                                           \
         std::stringstream ss;                                                                                                                       \
         ss << "NoThrowError in " __FILE__ ":" T_TOSTRING( __LINE__ ) ". Expr:\"" #expr << "\", Desc:\"" __VA_ARGS__ << "\"";                        \
-        EXIT_OR_THROW( ss.str(), UnitTestRequireException );                                                                                        \
+        T_EXIT_OR_THROW( ss.str(), UnitTestRequireException );                                                                                      \
     } while ( false )
 
 #define SECTION( name, ... ) for ( auto ok = StartSection( name ); ok; throw UnitTestRerunException( name ) )
 
-#define ADD_TEST_FUNC( funcName, ... )                                                                                                              \
+#define ADD_TEST_CASE( funcName, ... )                                                                                                              \
     static struct funcName##_TestCase : public UnitTestCaseBase                                                                                     \
     {                                                                                                                                               \
         void RunTestImpl() override;                                                                                                                \
@@ -81,7 +121,7 @@
     } s_##funcName##_TestCase__;                                                                                                                    \
     void funcName##_TestCase::RunTestImpl()
 
-#define STATIC_TEST_FUNC( funcName, ... )                                                                                                           \
+#define STATIC_TEST_CASE( funcName, ... )                                                                                                           \
     static struct funcName##_TestCase : public UnitTestCaseBase                                                                                     \
     {                                                                                                                                               \
         void RunTestImpl() override;                                                                                                                \
@@ -163,6 +203,7 @@ struct UnitTestCaseBase
         auto &os = GetOStream();
         os << "++ Start test " << m_name << std::endl;
         t_get_unittest_registration().currentTest = m_name;
+        m_requires = 0;
         auto timeStart = std::chrono::steady_clock::now();
         for ( bool rerun = true; rerun; )
         {
@@ -187,7 +228,8 @@ struct UnitTestCaseBase
             }
         }
         auto timeDiff = std::chrono::steady_clock::now() - timeStart;
-        os << "-- Test ended " << m_name << ", time elapsed (ns): " << timeDiff.count() << std::endl << std::endl;
+        os << "-- Test ended " << m_name << ", number of requires: " << m_requires << ", time elapsed (ns): " << timeDiff.count() << std::endl
+           << std::endl;
     }
 
     const std::string &GetName() const
@@ -206,7 +248,7 @@ struct UnitTestCaseBase
     std::unordered_set<std::string> m_executedSections;
     std::string m_name;
     std::string m_currSection;
-    int m_requirements = 0;
+    int m_requires = 0;
 };
 
 ////////////////// unittests_main /////////////////////////////

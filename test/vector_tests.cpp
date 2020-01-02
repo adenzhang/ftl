@@ -3,7 +3,7 @@
 
 using namespace ftl;
 
-ADD_TEST_FUNC( vector_tests )
+ADD_TEST_CASE( vector_tests )
 {
     Array<char, 5> a = {'a', 'b', 'c'};
 

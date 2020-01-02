@@ -43,7 +43,7 @@ void test_try( size_t N, bool bcrash = false )
     std::cout << "- processing time(ns): " << ( tsStop - tsStart ).count() << ", latency(ns):" << ( tsStop - tsStart ).count() / N << std::endl;
 }
 
-ADD_TEST_FUNC( try_catch_tests )
+ADD_TEST_CASE( try_catch_tests )
 {
     FTL_TRY_INSTALL1();
     size_t N = 10000000;

@@ -24,7 +24,7 @@ struct A
 typedef ::std::shared_ptr<A> APtr;
 } // namespace
 
-ADD_TEST_FUNC( test_shared_object_pool )
+ADD_TEST_CASE( test_shared_object_pool )
 {
     using namespace ftl;
     typedef shared_object_pool<A> SharedAPool;

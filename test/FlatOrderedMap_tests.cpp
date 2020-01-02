@@ -1,7 +1,7 @@
 #include <ftl/unittest.h>
 #include <ftl/flat_ordered_map.h>
 
-ADD_TEST_FUNC( FlatOrderedMap_tests )
+ADD_TEST_CASE( FlatOrderedMap_tests )
 {
     SECTION( "int map" )
     {

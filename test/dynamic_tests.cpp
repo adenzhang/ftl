@@ -31,7 +31,7 @@ struct object_read
 
 // FTL_CHECK_EXPR2(variant_has_type, std::get<T2>(std::declval<T1>()));
 
-ADD_TEST_FUNC( dynamic_tests )
+ADD_TEST_CASE( dynamic_tests )
 {
     using namespace schema;
 

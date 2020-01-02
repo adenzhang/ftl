@@ -5,7 +5,7 @@
 #include <map>
 
 using namespace ftl;
-ADD_TEST_FUNC( iterable_tests )
+ADD_TEST_CASE( iterable_tests )
 {
     using namespace func_operator;
 

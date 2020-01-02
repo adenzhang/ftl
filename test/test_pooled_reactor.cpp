@@ -113,13 +113,13 @@ public:
 //    DoWork();
 //}
 
-ADD_TEST_FUNC( Test_PooledReactors )
+ADD_TEST_CASE( Test_PooledReactors )
 {
     ReactorsTestFixture<PooledReactors> test;
     test.DoWork();
 }
 
-ADD_TEST_FUNC( Test_GroupedReactors )
+ADD_TEST_CASE( Test_GroupedReactors )
 {
     ReactorsTestFixture<GroupedReactors> test;
     test.DoWork();
