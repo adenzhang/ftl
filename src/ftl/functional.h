@@ -18,6 +18,8 @@
 #pragma once
 #include <utility>
 #include <cstdint>
+#include <cstdlib>
+#include <cassert>
 
 namespace ftl
 {
@@ -78,6 +80,63 @@ private:
     std::uintptr_t m_addr;
 };
 
+template<std::size_t N, std::size_t Align>
+struct InplaceStorage
+{
+    static constexpr auto inplace_size = N;
+    void *ptr() const
+    {
+        return &m_data;
+    }
+
+private:
+    std::aligned_storage_t<N, Align> m_data;
+};
+
+template<std::size_t Align>
+struct InplaceStorage<0, Align>
+{
+    static constexpr std::size_t inplace_size = 0;
+    constexpr void *ptr() const
+    {
+        return nullptr;
+    }
+};
+
+// allocate only once
+template<std::size_t InplaceSize, std::size_t Align, bool bUseDynamicAlloc>
+struct AlignedOnceAllocatorWithInplace : private InplaceStorage<InplaceSize, Align>
+{
+    using InplaceAlloc = InplaceStorage<InplaceSize, Align>;
+    static constexpr auto use_dynamic_alloc = bUseDynamicAlloc;
+
+    void *allocate( std::size_t M )
+    {
+        if constexpr ( InplaceAlloc::inplace_size > 0 )
+        {
+            if ( InplaceAlloc::inplace_size >= M )
+                return InplaceAlloc::ptr();
+        }
+        if constexpr ( use_dynamic_alloc )
+            return std::aligned_alloc( Align, M );
+        else
+            return nullptr;
+    }
+    constexpr bool can_allocate( std::size_t M )
+    {
+        return ( InplaceAlloc::inplace_size >= M ) ? true : use_dynamic_alloc;
+    }
+
+    void deallocate( void *p )
+    {
+        if constexpr ( InplaceAlloc::inplace_size > 0 )
+        {
+            if ( InplaceAlloc::ptr() == p )
+                return;
+        }
+        std::free( p );
+    }
+};
 
 ///============  FuncPtr Erasure =================================
 /// static function based implementation
@@ -88,6 +147,7 @@ namespace type_erasure
     using erasure_destroy_type = FuncPtr<void( const void * )>;
     using erasure_copy_type = FuncPtr<void( void *, const void * )>;
     using erasure_move_type = FuncPtr<void( void *, void * )>;
+    using erasure_size_type = FuncPtr<std::size_t()>;
 
     using erasure_noop_type = FuncPtr<void( const void * )>;
 
@@ -121,20 +181,23 @@ namespace type_erasure
         template<class Result, class... Args>
         static Result invoke( const void *pFunctor, Args &&... args )
         {
-            //            if constexpr ( std::is_invocable_r_v<Result, const T, Args...> )
             return ( *reinterpret_cast<const T *>( pFunctor ) )( std::forward<Args>( args )... );
         }
 
         template<class Result, class... Args>
         static Result invoke_mut( const void *pFunctor, Args &&... args )
         {
-            //            if constexpr ( std::is_invocable_r_v<Result, T, Args...> )
             return ( *reinterpret_cast<T *>( const_cast<void *>( pFunctor ) ) )( std::forward<Args>( args )... );
         }
 
         static bool can_cast( const void *pU )
         {
             return dynamic_cast<const T *>( pU );
+        }
+
+        static constexpr std::size_t size()
+        {
+            return sizeof( T );
         }
 
         void noop( const void * )
@@ -148,13 +211,17 @@ namespace type_erasure
     {
         template<class T>
         constexpr TypeErasureBase( erasure_traits<T> )
-            : pDestroy( &erasure_traits<T>::destroy ), pCopy( &erasure_traits<T>::copy ), pMove( &erasure_traits<T>::move )
+            : pDestroy( &erasure_traits<T>::destroy ),
+              pCopy( &erasure_traits<T>::copy ),
+              pMove( &erasure_traits<T>::move ),
+              pSize( &erasure_traits<T>::size )
         {
         }
 
         erasure_destroy_type pDestroy;
         erasure_copy_type pCopy;
         erasure_move_type pMove;
+        erasure_size_type pSize;
     };
 
     template<class Signature, bool bMutCallable>
@@ -201,6 +268,30 @@ namespace type_erasure
     template<class T, class Signature, bool bMutCallable>
     const TypeInfoCallable<Signature, bMutCallable> StaticTypeInfo<T, Signature, bMutCallable>::value = {erasure_traits<T>()};
 
+
+    template<std::size_t InplaceSize,
+             bool bUseDynamicAlloc,
+             bool bMutCallable = false,
+             bool bCopyConstructible = true,
+             bool bMoveConstructible = true>
+    struct StoragePolicy : public AlignedOnceAllocatorWithInplace<InplaceSize, alignof( std::aligned_storage_t<InplaceSize> ), bUseDynamicAlloc>
+    {
+        using base_type = AlignedOnceAllocatorWithInplace<InplaceSize, alignof( std::aligned_storage_t<InplaceSize> ), bUseDynamicAlloc>;
+
+        static const auto has_allocator = bUseDynamicAlloc;
+        static const auto has_inplace = InplaceSize > 0;
+        static const auto is_mutable_callable = bMutCallable, is_copyable = bCopyConstructible, is_moveable = bMoveConstructible;
+
+        using base_type::allocate;
+        using base_type::can_allocate;
+        using base_type::deallocate;
+
+        bool is_inplace( const void *p ) const
+        {
+            return base_type::ptr() == p;
+        }
+    };
+
     template<std::size_t uiSize, class Signature = void, bool bMutCallable = false, bool bCopyConstructible = true, bool bMoveConstructible = true>
     struct Erasure
     {
@@ -221,6 +312,8 @@ namespace type_erasure
         Erasure( const Erasure<M, Signature, bMutCallableT, true, bMoveConstructible> &erasure )
         {
             static_assert( bMutCallableT == bMutCallable || !bMutCallableT, "Cannot convert from mutable call to immutable call!" );
+            // it should require erasure.size() <= this->capacity()
+            static_assert( uiSize >= M, "Cannot move large to small memory!" );
             if ( erasure.m_pInfoEx )
             {
                 erasure.m_pInfoEx->pCopy( &m_storage, &erasure.m_storage );
@@ -233,6 +326,8 @@ namespace type_erasure
         Erasure( Erasure<M, Signature, bMutCallableT, bCopyConstructible, true> &&erasure )
         {
             static_assert( bMutCallableT == bMutCallable || !bMutCallableT, "Cannot convert from mutable call to immutable call!" );
+            // it should require erasure.size() <= this->capacity()
+            static_assert( uiSize >= M, "Cannot move large to small memory!" );
             assert( static_cast<void *>( &erasure ) != static_cast<void *>( this ) );
 
             if ( erasure.m_pInfoEx )
@@ -267,6 +362,8 @@ namespace type_erasure
         Erasure &operator=( const Erasure<M, Signature, bMutCallableT, true, bMoveConstructible> &erasure )
         {
             static_assert( bMutCallableT == bMutCallable || !bMutCallableT, "Cannot convert from mutable call to immutable call!" );
+            // it should require erasure.size() <= this->capacity()
+            static_assert( uiSize >= M, "Cannot move large to small memory!" );
             this->~Erasure();
 
             if ( erasure.m_pInfoEx )
@@ -284,6 +381,8 @@ namespace type_erasure
         Erasure &operator=( Erasure<M, Signature, bMutCallableT, bCopyConstructible, true> &&erasure )
         {
             static_assert( bMutCallableT == bMutCallable || !bMutCallableT, "Cannot convert from mutable call to immutable call!" );
+            // it should require erasure.size() <= this->capacity()
+            static_assert( uiSize >= M, "Cannot move large to small memory!" );
             assert( &erasure != this );
 
             this->~Erasure();
@@ -314,6 +413,15 @@ namespace type_erasure
         explicit operator bool() const
         {
             return !empty();
+        }
+
+        std::size_t size() const
+        {
+            return empty() ? 0 : m_pInfoEx->pSize();
+        }
+        constexpr std::size_t capacity() const
+        {
+            return uiSize;
         }
 
         template<class T, class... Args>
