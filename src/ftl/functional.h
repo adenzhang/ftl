@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cassert>
+#include <stdexcept>
 
 namespace ftl
 {
@@ -80,6 +81,12 @@ private:
     std::uintptr_t m_addr;
 };
 
+////////////////////////////////////////////////////////////////////////
+///
+///     Object Storage
+///
+////////////////////////////////////////////////////////////////////////
+
 template<std::size_t N, std::size_t Align>
 struct InplaceStorage
 {
@@ -93,6 +100,8 @@ private:
     std::aligned_storage_t<N, Align> m_data;
 };
 
+
+
 template<std::size_t Align>
 struct InplaceStorage<0, Align>
 {
@@ -103,38 +112,123 @@ struct InplaceStorage<0, Align>
     }
 };
 
+template<bool bUseDynamicAlloc>
+struct AlignedDynamicStorage
+{
+    void *allocate( std::size_t N, std::size_t Align )
+    {
+        assert( !m_ptr );
+        return m_ptr = std::aligned_alloc( Align, N );
+    }
+
+    void deallocate()
+    {
+        if ( m_ptr )
+        {
+            std::free( m_ptr );
+            m_ptr = nullptr;
+        }
+    }
+    void *ptr() const
+    {
+        return m_ptr;
+    }
+    void set_ptr( void *p )
+    {
+        assert( !m_ptr );
+        m_ptr = p;
+    }
+
+protected:
+    void *m_ptr = nullptr;
+};
+
+template<>
+struct AlignedDynamicStorage<false>
+{
+    void *allocate( std::size_t, std::size_t )
+    {
+        return nullptr;
+    }
+    void deallocate()
+    {
+    }
+    void *ptr() const
+    {
+        return nullptr;
+    }
+};
+
 // allocate only once
 template<std::size_t InplaceSize, std::size_t Align, bool bUseDynamicAlloc>
-struct AlignedOnceAllocatorWithInplace : private InplaceStorage<InplaceSize, Align>
+struct BoxedStorageBase : private InplaceStorage<InplaceSize, Align>, private AlignedDynamicStorage<bUseDynamicAlloc>
 {
     using InplaceAlloc = InplaceStorage<InplaceSize, Align>;
+    using DynamicAlloc = AlignedDynamicStorage<bUseDynamicAlloc>;
     static constexpr auto use_dynamic_alloc = bUseDynamicAlloc;
+
+    static_assert( InplaceSize > 0 || bUseDynamicAlloc, "Unable to store!" );
+
+    BoxedStorageBase( const BoxedStorageBase & ) = delete;
+    BoxedStorageBase &operator=( const BoxedStorageBase & ) = delete;
 
     void *allocate( std::size_t M )
     {
         if constexpr ( InplaceAlloc::inplace_size > 0 )
         {
             if ( InplaceAlloc::inplace_size >= M )
-                return InplaceAlloc::ptr();
+            {
+                auto p = InplaceAlloc::ptr();
+                DynamicAlloc::set_ptr( p );
+                return p;
+            }
         }
         if constexpr ( use_dynamic_alloc )
-            return std::aligned_alloc( Align, M );
+            return DynamicAlloc::allocate( M, Align );
         else
             return nullptr;
     }
-    constexpr bool can_allocate( std::size_t M )
+    constexpr bool can_allocate( std::size_t M ) const
     {
         return ( InplaceAlloc::inplace_size >= M ) ? true : use_dynamic_alloc;
     }
 
-    void deallocate( void *p )
+    void deallocate()
     {
-        if constexpr ( InplaceAlloc::inplace_size > 0 )
+        if ( is_using_inplace() )
+            DynamicAlloc::deallocate();
+    }
+    void *inplace_ptr() const
+    {
+        return InplaceAlloc::ptr();
+    }
+    void *get_ptr() const
+    {
+        if constexpr ( use_dynamic_alloc )
+            return DynamicAlloc::ptr();
+        else
+            return InplaceAlloc::ptr();
+    }
+    constexpr bool is_using_inplace() const
+    {
+        if constexpr ( use_dynamic_alloc )
+            return DynamicAlloc::ptr() == InplaceAlloc::ptr();
+        else
+            return true;
+    }
+
+    // if both bUseDynamicAlloc
+    template<std::size_t InplaceSizeT, std::size_t AlignT>
+    std::enable_if_t<bUseDynamicAlloc, bool> try_movein_ptr( BoxedStorageBase<InplaceSizeT, AlignT, true> &another )
+    {
+        assert( is_using_inplace() );
+        if ( !another.is_using_inplace() )
         {
-            if ( InplaceAlloc::ptr() == p )
-                return;
+            DynamicAlloc::set_ptr( another.get_ptr() );
+            another.set_ptr( nullptr );
+            return true;
         }
-        std::free( p );
+        return false;
     }
 };
 
@@ -207,10 +301,10 @@ namespace type_erasure
         // todo compare: ==, !=
     };
 
-    struct TypeErasureBase
+    struct TypeErasureInfoBase
     {
         template<class T>
-        constexpr TypeErasureBase( erasure_traits<T> )
+        constexpr TypeErasureInfoBase( erasure_traits<T> )
             : pDestroy( &erasure_traits<T>::destroy ),
               pCopy( &erasure_traits<T>::copy ),
               pMove( &erasure_traits<T>::move ),
@@ -224,11 +318,20 @@ namespace type_erasure
         erasure_size_type pSize;
     };
 
+    //    template<class U>
+    //    struct TypeErasureInfo : TypeErasureInfoBase
+    //    {
+    //        template<class T = U>
+    //        constexpr TypeErasureInfo( erasure_traits<T> ) : TypeErasureInfoBase( erasure_traits<T>{} )
+    //        {
+    //        }
+    //    };
+
     template<class Signature, bool bMutCallable>
-    struct TypeErasureBaseEx : TypeErasureBase
+    struct TypeErasureInvokeInfo : TypeErasureInfoBase
     {
         template<class T>
-        constexpr TypeErasureBaseEx( erasure_traits<T> id ) : TypeErasureBase( id ), pInvoke( &erasure_traits<T>::noop )
+        constexpr TypeErasureInvokeInfo( erasure_traits<T> id ) : TypeErasureInfoBase( id ), pInvoke( &erasure_traits<T>::noop )
         {
         }
 
@@ -236,68 +339,263 @@ namespace type_erasure
     };
 
     template<class Result, class... Args>
-    struct TypeErasureBaseEx<Result( Args... ), true> : TypeErasureBase
+    struct TypeErasureInvokeInfo<Result( Args... ), true> : TypeErasureInfoBase
     {
         template<class T>
-        constexpr TypeErasureBaseEx( erasure_traits<T> id )
-            : TypeErasureBase( id ), pInvoke( &(erasure_traits<T>::template invoke_mut<Result, Args...>))
+        constexpr TypeErasureInvokeInfo( erasure_traits<T> id )
+            : TypeErasureInfoBase( id ), pInvoke( &(erasure_traits<T>::template invoke_mut<Result, Args...>))
         {
         }
 
         erasure_invoke_type<Result, Args...> pInvoke;
     };
     template<class Result, class... Args>
-    struct TypeErasureBaseEx<Result( Args... ), false> : TypeErasureBase
+    struct TypeErasureInvokeInfo<Result( Args... ), false> : TypeErasureInfoBase
     {
         template<class T>
-        constexpr TypeErasureBaseEx( erasure_traits<T> id ) : TypeErasureBase( id ), pInvoke( &(erasure_traits<T>::template invoke<Result, Args...>))
+        constexpr TypeErasureInvokeInfo( erasure_traits<T> id )
+            : TypeErasureInfoBase( id ), pInvoke( &(erasure_traits<T>::template invoke<Result, Args...>))
         {
         }
 
         erasure_invoke_type<Result, Args...> pInvoke;
     };
 
-    template<class Signature, bool bMutCallable = false>
-    using TypeInfoCallable = TypeErasureBaseEx<Signature, bMutCallable>;
 
-    template<class T, class Signature = void, bool bMutCallable = false>
+
+    template<class T>
     struct StaticTypeInfo
     {
-        static const TypeInfoCallable<Signature, bMutCallable> value;
+        static const TypeErasureInfoBase value;
+    };
+    template<class T>
+    const TypeErasureInfoBase StaticTypeInfo<T>::value = {erasure_traits<T>()};
+
+    template<class Signature, bool bMutCallable = false>
+    using CallableTypeInfo = TypeErasureInvokeInfo<Signature, bMutCallable>;
+
+    template<class T, class Signature = void, bool bMutCallable = false>
+    struct StaticCallableTypeInfo
+    {
+        static const CallableTypeInfo<Signature, bMutCallable> value;
     };
     template<class T, class Signature, bool bMutCallable>
-    const TypeInfoCallable<Signature, bMutCallable> StaticTypeInfo<T, Signature, bMutCallable>::value = {erasure_traits<T>()};
+    const CallableTypeInfo<Signature, bMutCallable> StaticCallableTypeInfo<T, Signature, bMutCallable>::value = {erasure_traits<T>()};
 
 
-    template<std::size_t InplaceSize,
-             bool bUseDynamicAlloc,
-             bool bMutCallable = false,
-             bool bCopyConstructible = true,
-             bool bMoveConstructible = true>
-    struct StoragePolicy : public AlignedOnceAllocatorWithInplace<InplaceSize, alignof( std::aligned_storage_t<InplaceSize> ), bUseDynamicAlloc>
+    template<class TypeInfo = TypeErasureInfoBase>
+    struct TypeInfoAccess
     {
-        using base_type = AlignedOnceAllocatorWithInplace<InplaceSize, alignof( std::aligned_storage_t<InplaceSize> ), bUseDynamicAlloc>;
+
+        const TypeInfo *m_pInfo = nullptr;
+        auto get_typeinfo() const
+        {
+            return m_pInfo;
+        }
+        void set_typeinfo( const TypeInfo *pInfo )
+        {
+            m_pInfo = pInfo;
+        }
+        template<class... U, auto... V>
+        void set_typeinfo()
+        {
+            m_pInfo = &StaticTypeInfo<U..., V...>::value;
+        }
+    };
+    template<class TypeInfo>
+    struct CallableTypeInfoAccess : TypeInfoAccess<TypeInfo>
+    {
+        template<class... U, auto... V>
+        void set_typeinfo()
+        {
+            TypeInfoAccess<TypeInfo>::m_pInfo = &StaticCallableTypeInfo<U..., V...>::value;
+        }
+    };
+
+    /// @class AnyStorageBase Inplace storage/allocator for any type. It can be used like std::any type and std::function with SBO.
+    /// Small buffer optimization: when the stored object size <= InplaceSize, object will be allocated in inplace. Otherwise, object will be
+    /// allocated dynamically. It can be copyable and/or moveable, which are specicified by template parameters.
+    ///
+    /// @tparam TypeInfoAccessor Traits (can be TypeInfoAccess<...> or CallableTypeInfoAccess<...>:
+    ///     const TypeInfo *get_typeinfo(); // get static TypeInfo
+    ///     void set_typeinfo<T>();
+    ///     void set_typeinfo(const TypeInfo *);
+    template<class TypeInfoAccessor, std::size_t InplaceSize, bool bUseDynamicAlloc, bool bCopyConstructible, bool bMoveConstructible>
+    struct AnyStorageBase : public BoxedStorageBase<InplaceSize, alignof( std::aligned_storage_t<InplaceSize> ), bUseDynamicAlloc>
+    {
+        using base_type = BoxedStorageBase<InplaceSize, alignof( std::aligned_storage_t<InplaceSize> ), bUseDynamicAlloc>;
+        using this_type = AnyStorageBase<TypeInfoAccessor, InplaceSize, bUseDynamicAlloc, bCopyConstructible, bMoveConstructible>;
 
         static const auto has_allocator = bUseDynamicAlloc;
         static const auto has_inplace = InplaceSize > 0;
-        static const auto is_mutable_callable = bMutCallable, is_copyable = bCopyConstructible, is_moveable = bMoveConstructible;
+        static const auto is_copyable = bCopyConstructible;
+        static const auto is_moveable = bMoveConstructible;
 
         using base_type::allocate;
         using base_type::can_allocate;
         using base_type::deallocate;
+        using base_type::get_ptr;
+        using base_type::inplace_ptr;
+        using base_type::is_using_inplace;
 
-        bool is_inplace( const void *p ) const
+        TypeInfoAccessor m_typeInfo; // assume: as long as there's a typeinfo,
+
+        ~AnyStorageBase()
         {
-            return base_type::ptr() == p;
+            destroy();
+        }
+        template<class T>
+        AnyStorageBase( T &&val )
+        {
+            if ( !base_type::allocate( sizeof( T ) ) )
+                throw std::length_error( "Inplace size is too small for type T!" );
+            emplace_impl<T>( std::forward<T>( val ) );
+        }
+        template<class T, class... Args>
+        AnyStorageBase( std::in_place_type_t<T>, Args &&... args )
+        {
+            if ( !base_type::allocate() )
+                throw std::length_error( "Inplace size is too small for type T!" );
+            emplace_impl<T>( std::forward<Args>( args )... );
+        }
+
+        // copy constructor
+        template<std::size_t InplaceSizeT, bool bUseDynamicAllocT, bool bMoveConstructibleT>
+        AnyStorageBase( const AnyStorageBase<TypeInfoAccessor, InplaceSizeT, bUseDynamicAllocT, true, bMoveConstructibleT> &another )
+        {
+            if ( auto pTypeInfo = another.m_typeInfo.get_typeinfo() )
+            {
+                if ( !base_type::allocate( pTypeInfo->pSize() ) )
+                    throw std::length_error( "Inplace size is too small to copy type in another!" );
+                pTypeInfo->pCopy( base_type::get_ptr(), another.get_ptr() );
+            }
+            m_typeInfo.set_typeinfo( another.get_typeinfo() );
+        }
+
+        // move constructor
+        template<std::size_t InplaceSizeT, bool bUseDynamicAllocT, bool bCopyConstructibleT>
+        AnyStorageBase( AnyStorageBase<TypeInfoAccessor, InplaceSizeT, bUseDynamicAllocT, bCopyConstructibleT, true> &&another )
+        {
+            if ( auto pTypeInfo = another.m_typeInfo.get_typeinfo() )
+            {
+                if constexpr ( bUseDynamicAlloc && bUseDynamicAllocT )
+                {
+                    if ( base_type::try_movein_ptr( another ) ) // move
+                    {
+                        m_typeInfo.set_typeinfo( another.get_typeinfo() );
+                        another.m_typeInfo.set_typeinfo( nullptr ); // no typeinfo in another
+                        return;
+                    }
+                }
+                if ( !base_type::allocate( pTypeInfo->pSize() ) )
+                    throw std::length_error( "Inplace size is too small to copy type in another!" );
+                pTypeInfo->pMove( base_type::get_ptr(), another.get_ptr() );
+            }
+            m_typeInfo.set_typeinfo( another.get_typeinfo() );
+        }
+
+        // allocate memory and set type info
+        // throws std::length_error when allocation fails.
+        template<std::size_t InplaceSizeT, bool bUseDynamicAllocT, bool bCopyConstructibleT, bool bMoveConstructibleT>
+        void preallocate_for_copy(
+                const AnyStorageBase<TypeInfoAccessor, InplaceSizeT, bUseDynamicAllocT, bCopyConstructibleT, bMoveConstructibleT> &another )
+        {
+            if ( auto pTypeInfo = another.m_typeInfo.get_typeinfo() )
+            {
+                // check  if it needs free and reallocate.
+                if ( auto pOldInfo = m_typeInfo.get_typeinfo() )
+                {
+                    if ( pOldInfo->pSize() < pTypeInfo->pSize() )
+                    {
+                        destroy();
+                        if ( !base_type::allocate( pTypeInfo->pSize() ) )
+                            throw std::length_error( "Inplace size is too small to copy type in another after deallocate!" );
+                    }
+                    else
+                        pOldInfo->pDestroy();
+                }
+                else
+                {
+                    if ( !base_type::allocate( pTypeInfo->pSize() ) )
+                        throw std::length_error( "Inplace size is too small to copy type in another!" );
+                }
+                //                pTypeInfo->pCopy( base_type::get_ptr(), another.get_ptr() );
+            }
+            else
+            {
+                if ( auto pOldInfo = m_typeInfo.get_typeinfo() )
+                    pOldInfo->pDestroy();
+            }
+
+            m_typeInfo.set_typeinfo( another.get_typeinfo() );
+        }
+
+        template<std::size_t InplaceSizeT, bool bUseDynamicAllocT, bool bMoveConstructibleT>
+        this_type &operator=( const AnyStorageBase<TypeInfoAccessor, InplaceSizeT, bUseDynamicAllocT, true, bMoveConstructibleT> &another )
+        {
+            preallocate_for_copy( another );
+            if ( auto pInfo = m_typeInfo.get_typeinfo() )
+                pInfo->pCopy( base_type::get_ptr(), another.get_ptr() );
+            return *this;
+        }
+        template<std::size_t InplaceSizeT, bool bUseDynamicAllocT, bool bCopyConstructibleT>
+        this_type &operator=( AnyStorageBase<TypeInfoAccessor, InplaceSizeT, bUseDynamicAllocT, bCopyConstructibleT, true> &&another )
+        {
+            if constexpr ( bUseDynamicAlloc && bUseDynamicAllocT )
+            {
+                if ( auto pTypeInfo = another.m_typeInfo.get_typeinfo(); pTypeInfo && !another.is_using_inplace() )
+                {
+                    destroy();
+                    base_type::try_movein_ptr( another ); // must return true;
+                    m_typeInfo.set_typeinfo( another.get_typeinfo() );
+                    another.m_typeInfo.set_typeinfo( nullptr ); // no typeinfo in another
+                    return *this;
+                }
+            }
+            preallocate_for_copy( another );
+            if ( auto pInfo = m_typeInfo.get_typeinfo() )
+                pInfo->pMove( base_type::get_ptr(), another.get_ptr() );
+            return *this;
+        }
+
+        void destroy()
+        {
+            destroy_object();
+            base_type::deallocate();
+            m_typeInfo.set_typeinfo( nullptr );
+        }
+        void destroy_object()
+        {
+            if ( auto pTypeInfo = m_typeInfo.get_typeinfo() )
+                pTypeInfo->pDestroy();
+        }
+
+        void *get_ptr() const
+        {
+            return m_typeInfo.get_typeinfo() ? base_type::get_ptr() : nullptr;
+        }
+
+    protected:
+        template<class T, class... Args>
+        void emplace_impl( Args &&... args )
+        {
+            new ( base_type::get_ptr() ) T( std::forward<Args>( args )... );
+            m_typeInfo.template set_typeinfo<T>();
         }
     };
 
-    template<std::size_t uiSize, class Signature = void, bool bMutCallable = false, bool bCopyConstructible = true, bool bMoveConstructible = true>
-    struct Erasure
+    template<std::size_t uiSize,
+             class Signature,
+             //             bool bUseDynamicAlloc,
+             bool bMutCallable = false,
+             bool bCopyConstructible = true,
+             bool bMoveConstructible = true>
+    struct Erasure //: public StoragePolicy<uiSize, bUseDynamicAlloc, bMutCallable, bCopyConstructible, bMoveConstructible>
     {
     public:
-        using TypeInfoExType = TypeInfoCallable<Signature, bMutCallable>;
+        using TypeInfoExType = CallableTypeInfo<Signature, bMutCallable>;
         using this_type = Erasure;
+        //        using base_type = StoragePolicy<uiSize, false, bMutCallable, bCopyConstructible, bMoveConstructible>;
 
         // Needs to be declared here for use in decltype below
         std::aligned_storage_t<uiSize> m_storage;
@@ -308,6 +606,7 @@ namespace type_erasure
         {
         }
 
+        // throws std::length_error
         template<std::size_t M, bool bMutCallableT>
         Erasure( const Erasure<M, Signature, bMutCallableT, true, bMoveConstructible> &erasure )
         {
@@ -492,7 +791,7 @@ namespace type_erasure
             static_assert( sizeof( T ) <= uiSize, "T is too large" );
 
             ::new ( &m_storage ) T( std::forward<Args>( args )... );
-            m_pInfoEx = &StaticTypeInfo<T, Signature, bMutCallable>::value;
+            m_pInfoEx = &StaticCallableTypeInfo<T, Signature, bMutCallable>::value;
         }
 
         template<class T, class... Args>
@@ -503,7 +802,7 @@ namespace type_erasure
             static_assert( sizeof( T ) <= uiSize, "T is too large" );
 
             ::new ( &m_storage ) T{std::forward<Args>( args )...};
-            m_pInfoEx = &StaticTypeInfo<T, Signature, bMutCallable>::value;
+            m_pInfoEx = &StaticCallableTypeInfo<T, Signature, bMutCallable>::value;
         }
 
         template<class T>
