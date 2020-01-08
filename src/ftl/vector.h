@@ -28,6 +28,90 @@
 
 namespace ftl
 {
+
+
+// destroy elements in [pbeing, middle), and move [middle, pend) to begin.
+template<class T>
+void destroy( T *pbegin, T *middle, T *pend )
+{
+    using Distance = std::ptrdiff_t;
+    if ( pbegin != middle )
+    {
+        if constexpr ( std::is_trivially_copyable_v<T> )
+        {
+            // for(; middle != pend; ++pbegin, ++middle)
+            //     *pbegin = *middle;
+            std::memmove( pbegin, middle, sizeof( T ) * ( pend - middle ) );
+        }
+        else if constexpr ( std::is_move_assignable_v<T> )
+        {
+            for ( Distance n = pend - middle; n > 0; --n, ++pbegin, ++middle )
+                *pbegin = std::move( middle );
+            for ( std::ptrdiff_t n = pend - pbegin; n > 0; --n, ++pbegin )
+                pbegin->~T();
+        }
+        else if constexpr ( std::is_copy_assignable_v<T> )
+        {
+            for ( Distance n = pend - middle; n > 0; --n, ++pbegin, ++middle )
+                *pbegin = middle;
+            for ( Distance n = pend - pbegin; n > 0; --n, ++pbegin )
+                pbegin->~T();
+        }
+        else
+        {
+            for ( auto p = pbegin; p != middle; ++p )
+                p->~T();
+            for ( Distance n = pend - middle; n > 0; --n, ++pbegin, ++middle )
+            {
+                if constexpr ( std::is_move_constructible_v<T> )
+                    new ( pbegin ) T( std::move( *middle ) );
+                else
+                    new ( pbegin ) T( *middle );
+                middle->~T();
+            }
+        }
+    }
+}
+
+
+template<class T>
+void assign_or_construct( T &lhs, T &rhs )
+{
+    if constexpr ( std::is_move_assignable_v<T> )
+        lhs = std::move( rhs );
+    else if constexpr ( std::is_copy_assignable_v<T> )
+        lhs = rhs;
+    else if constexpr ( std::is_move_constructible_v<T> )
+    {
+        lhs.~T();
+        new ( &lhs ) T( std::move( rhs ) );
+    }
+    else
+    {
+        lhs.~T();
+        new ( &lhs ) T( rhs );
+    }
+}
+
+template<class T, class F>
+T *remove_if( T *pbegin, T *pend, F &&pred )
+{
+    using Distance = std::ptrdiff_t;
+    auto result = pbegin;
+    for ( Distance n = pend - pbegin; n > 0; --n, ++pbegin )
+    {
+        if ( !pred( *pbegin ) ) // keep it
+        {
+            if ( result != pbegin )
+            {
+                assign_or_construct( *result, *pbegin );
+            }
+            ++result;
+        } // else remove it
+    }
+    return result;
+}
+
 /// @class arrayview View of buffer.
 template<typename T, bool HasCapacity = true>
 struct arrayview;
@@ -1018,7 +1102,7 @@ public:
         auto n = std::distance( it, itEnd );
         if ( n > 0 )
         {
-            for ( auto pend = end(); itEnd != pend; ++itEnd, ++it )
+            for ( auto pend = end(); itEnd != pend; ++itEnd, ++it ) // todo fix bug
                 std::swap( *it, *itEnd );
             for ( ; it != itEnd; ++it )
                 it->~T();
