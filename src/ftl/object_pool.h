@@ -23,80 +23,170 @@
 namespace ftl
 {
 
-template<class U>
-struct FreeNode
+/// @brief FreeList traits:
+///    - typename Node
+///    - T *pop()
+///    - void push(T &)
+///    - bool empty() const
+template<class T>
+struct FreeList
 {
-    using this_type = FreeNode;
-
-    static_assert( sizeof( U ) >= sizeof( std::atomic<FreeNode *> ), "Object U is too small!" );
-
-    union {
-        char buf[sizeof( U )];
-        std::atomic<FreeNode *> next;
-    } data;
-
-    void init()
+    struct FreeNode
     {
-        new ( &data.next ) std::atomic<FreeNode *>();
-    }
+        FreeNode *pNext;
 
-    U *get_object()
-    {
-        return reinterpret_cast<U *>( data.buf );
-    }
-    std::atomic<FreeNode *> &get_next_ref()
-    {
-        return data.next;
-    }
-
-
-    static void push( std::atomic<this_type *> &head, U *pObj )
-    {
-        auto pNode = from_object( pObj );
-        pNode->init();
-        this_type *pHead = nullptr;
-        do
+        FreeNode( T *next = nullptr ) : pNext( reinterpret_cast<FreeNode *>( next ) )
         {
-            pHead = head.load();
-            pNode->get_next_ref() = pHead;
-        } while ( !head.compare_exchange_weak( pHead, pNode ) );
+        }
+        FreeNode( FreeNode *next = nullptr ) : pNext( next )
+        {
+        }
+    };
+    using Node = FreeNode;
+
+    static_assert( sizeof( T ) >= sizeof( FreeNode * ), "sizeof T < sizeof(void *)" );
+
+    void push( T &p )
+    {
+        new ( reinterpret_cast<FreeNode *>( &p ) ) FreeNode( pHead );
+        pHead = reinterpret_cast<FreeNode *>( &p );
     }
 
-    static U *pop( std::atomic<this_type *> &head )
+    T *pop()
     {
-        auto pNode = head.load();
-        if ( pNode )
+        T *res = reinterpret_cast<T *>( pHead );
+        if ( pHead )
+            pHead = pHead->pNext;
+        return res;
+    }
+    bool empty() const
+    {
+        return !pHead;
+    }
+
+    FreeNode *pHead = nullptr;
+};
+
+template<class U>
+struct AtomicFreeList
+{
+    struct AtomicFreeNode
+    {
+        using this_type = AtomicFreeNode;
+        using Ptr = std::atomic<AtomicFreeNode *>;
+
+        static_assert( sizeof( U ) >= sizeof( std::atomic<AtomicFreeNode *> ), "Object U is too small!" );
+
+        union {
+            char buf[sizeof( U )];
+            Ptr next;
+        } data;
+
+        void init()
         {
+            new ( &data.next ) Ptr();
+        }
+
+        U *get_object()
+        {
+            return reinterpret_cast<U *>( data.buf );
+        }
+        Ptr &get_next_ref()
+        {
+            return data.next;
+        }
+
+        static void push( Ptr &head, U *pObj )
+        {
+            auto pNode = from_object( pObj );
+            pNode->init();
+            this_type *pHead = nullptr;
+            do
+            {
+                pHead = head.load();
+                pNode->get_next_ref() = pHead;
+            } while ( !head.compare_exchange_weak( pHead, pNode ) );
+        }
+
+        static U *pop( Ptr &head )
+        {
+            auto pHead = head.load();
             this_type *pNext = nullptr;
             do
             {
-                pNode = head.load();
-                if ( !pNode )
+                if ( !pHead )
                     break;
-                pNext = pNode->data.next.load();
-
-            } while ( !head.compare_exchange_weak( pNode, pNext ) );
+                pNext = pHead->data.next.load();
+            } while ( !head.compare_exchange_weak( pHead, pNext ) );
+            return pHead;
         }
-        return pNode;
+
+        static AtomicFreeNode *from_object( U *pObj )
+        {
+            return reinterpret_cast<AtomicFreeNode *>( pObj );
+        }
+    };
+
+    using Node = AtomicFreeNode;
+
+    void push( U &p )
+    {
+        AtomicFreeNode::push( mFreeList, &p );
+    }
+    U *pop()
+    {
+        AtomicFreeNode::pop( mFreeList );
+    }
+    bool empty() const
+    {
+        return nullptr == mFreeList.load();
     }
 
-    static FreeNode *from_object( U *pObj )
-    {
-        return reinterpret_cast<FreeNode *>( pObj );
-    }
+    std::atomic<Node *> mFreeList;
 };
 
 // Object Pool with lockfree free list
-template<class T, class AllocT = std::allocator<T>>
+template<class T, class AllocT = std::allocator<T>, typename FreeList = AtomicFreeList<T>>
 class ObjectPool
 {
 public:
-    using FreeNodeType = FreeNode<T>;
+    using FreeNodeType = typename FreeList::Node;
     using Alloc = typename std::allocator_traits<AllocT>::template rebind_alloc<FreeNodeType>;
+    using this_type = ObjectPool;
+
+    struct Deleter
+    {
+        ObjectPool &alloc;
+        Deleter( ObjectPool &a ) : alloc( a )
+        {
+        }
+
+        void operator()( T *p )
+        {
+            alloc.deallocate( p );
+        }
+    };
+
+    struct Allocator
+    {
+        using value_type = T;
+        ObjectPool &alloc;
+        Allocator( ObjectPool &a ) : alloc( a )
+        {
+        }
+        T *allocate( size_t = 1 )
+        {
+            return alloc.allocate();
+        }
+        void deallocate( T *p, size_t = 1 )
+        {
+            alloc.deallocate( p, 1 );
+        }
+    };
 
 protected:
     Alloc mAlloc;
-    std::atomic<FreeNodeType *> mFreeList = 0;
+    FreeList mFreeList = 0;
 
     std::atomic<size_t> mAllocated = 0, mFreeSize = 0;
 
@@ -107,7 +197,7 @@ public:
         {
             auto pNode = mAlloc.allocate( 1 );
             assert( pNode );
-            FreeNodeType::push( mFreeList, pNode );
+            mFreeList.push( pNode );
             ++mAllocated;
             ++mFreeSize;
         }
@@ -115,12 +205,9 @@ public:
     ~ObjectPool()
     {
         assert( mAllocated == mFreeSize );
-        while ( mFreeList.load() )
-        {
-            auto p = mFreeList.load()->get_next_ref().load();
-            mAlloc.deallocate( p, 1 );
-            mFreeList = p;
-        }
+        T *pNode = nullptr;
+        while ( ( pNode = mFreeList.pop() ) )
+            mAlloc.deallocate( pNode, 1 );
     }
 
     size_t allocated_size() const
@@ -132,44 +219,62 @@ public:
         return mFreeSize;
     }
 
-    template<class... Args>
-    T *get_object( Args &&... args )
+    T *allocate( size_t = 1 )
     {
-        auto pNode = FreeNodeType::pop( mFreeList );
-        if ( pNode )
-        {
-            new ( pNode->get_object() ) T( std::forward<Args...>( args )... );
-            return pNode->get_object();
-        }
-        return nullptr;
-    }
-
-    template<class... Args>
-    T *get_or_create_object( Args &&... args )
-    {
-        auto pNode = FreeNodeType::pop( mFreeList );
+        auto pNode = mFreeList.pop();
         if ( !pNode )
         {
             pNode = mAlloc.allocate( 1 );
             if ( pNode )
                 ++mAllocated;
         }
-        if ( pNode )
-        {
-            new ( pNode->get_object() ) T( std::forward<Args...>( args )... );
-            return pNode->get_object();
-        }
-        return nullptr;
+        return pNode;
     }
 
-    // put object into free list without checking whether it's allocated by pool or not
-    void release_object( T *pObj )
+    template<class... Args>
+    T *create( Args &&... args )
+    {
+        auto pNode = allocate();
+        if ( pNode )
+        {
+            new ( pNode ) T( std::forward<Args...>( args )... );
+        }
+        return pNode;
+    }
+
+    template<class... Args>
+    std::unique_ptr<T, Deleter> create_unique( Args &&... args )
+    {
+        return std::unique_ptr<T, Deleter>( create( std::forward<Args>( args )... ), to_deleter() );
+    }
+
+    void destroy( T *pObj )
     {
         if ( !pObj )
             return;
         pObj->~T();
-        FreeNodeType::push( mFreeList, pObj );
+        deallocate( pObj );
+    }
+    // put object into free list without checking whether it's allocated by pool or not
+    void deallocate( T *pObj, size_t = 1 )
+    {
+        if ( !pObj )
+            return;
+        mFreeList.push( pObj );
         ++mFreeSize;
+    }
+
+    Deleter to_deleter() const
+    {
+        return Deleter( *this );
+    }
+    Allocator to_allocator() const
+    {
+        return Allocator( *this );
+    }
+    Alloc &get_allocator()
+    {
+        return mAlloc;
     }
 };
 } // namespace ftl

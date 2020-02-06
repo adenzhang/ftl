@@ -129,8 +129,8 @@ public:
                                     auto &m = r.template as<vec_type>();
                                     for ( const auto &p : e )
                                     {
-                                        assert( p.second );
-                                        auto newV = p.second->clone();
+                                        assert( p );
+                                        auto newV = p->clone();
                                         m.emplace_back( make_dynamic_ptr( std::move( newV ) ) );
                                     }
                                     return r;
