@@ -67,6 +67,7 @@ struct StaticFnDeleter
 
     void operator()( T *p )
     {
+        p->~T();
         deallocate( p );
     }
 };
@@ -109,8 +110,9 @@ protected:
 template<class T>
 struct null_delete
 {
-    void operator()( T * )
+    void operator()( T *p )
     {
+        p->~T();
     }
 };
 
