@@ -49,7 +49,7 @@ template<class K, class... PrimitiveTypes>
 using dynamic_map = std::unordered_map<K, dynamic_ptr<K, PrimitiveTypes...>>;
 
 template<class K, class... PrimitiveTypes>
-using dynamic_var_ = std::variant<std::nullptr_t, PrimitiveTypes..., dynamic_vec<K, PrimitiveTypes...>, dynamic_map<K, PrimitiveTypes...>>;
+using dynamic_var_ = std::variant<dynamic_map<K, PrimitiveTypes...>, PrimitiveTypes..., dynamic_vec<K, PrimitiveTypes...>>;
 
 
 /// @brief Generaic make_dynamic create dynamic_var D.
@@ -75,13 +75,28 @@ public:
     using base_type = dynamic_var_<K, PrimitiveTypes...>;
     using this_type = dynamic_var<K, PrimitiveTypes...>;
 
-    using null_type = std::nullptr_t;
+    using key_type = K;
     using vec_type = dynamic_vec<K, PrimitiveTypes...>;
     using map_type = dynamic_map<K, PrimitiveTypes...>;
 
-    static constexpr auto type_index_size = sizeof...( PrimitiveTypes ) + 2; // plus nullptr_t and E.
-    static constexpr auto map_type_index = type_index_size - 1;
-    static constexpr auto vec_type_index = type_index_size - 2;
+    static constexpr auto type_index_size = sizeof...( PrimitiveTypes ) + 2; // plus map, vec.
+    static constexpr auto map_type_index = 0; // first type is map.
+    static constexpr auto str_type_index = 1; // str type, index == 1.
+    static constexpr auto vec_type_index = type_index_size - 1; // last type is vec.
+
+    template<size_t n, typename Head, typename... Tail>
+    struct NthTypeImpl
+    {
+        using type = typename NthTypeImpl<n - 1, Tail...>::type;
+    };
+
+    template<typename Head, typename... Tail>
+    struct NthTypeImpl<0, Head, Tail...>
+    {
+        using type = Head;
+    };
+    template<size_t N>
+    using NthType = typename NthTypeImpl<N, dynamic_map<K, PrimitiveTypes...>, PrimitiveTypes..., dynamic_vec<K, PrimitiveTypes...>>::type;
 
     dynamic_var() = default;
 
@@ -151,15 +166,10 @@ public:
         return *this;
     }
 
-    template<class ET>
-    ET *get()
+    template<size_t n>
+    bool is_nth_type() const
     {
-        return std::get<ET>( this );
-    }
-    template<class ET>
-    const ET *get() const
-    {
-        return std::get<ET>( this );
+        return base_type::index() == n;
     }
     template<class ET>
     ET &as()
@@ -170,6 +180,44 @@ public:
     const ET &as() const
     {
         return std::get<ET>( *this );
+    }
+
+    bool is_map() const
+    {
+        return is_nth_type<map_type_index>();
+    }
+    bool is_vec() const
+    {
+        return is_nth_type<vec_type_index>();
+    }
+    const auto &as_str() const
+    {
+        return as<NthType<str_type_index>>();
+    }
+
+    // call func(std::string& key, dynamic_var &);
+    template<class Func>
+    void foreach_map_entry( Func &&func ) const
+    {
+        accept( overload{[&]( const map_type &e ) {
+                             for ( const auto &p : e ) // clang-format doesn't work with const auto& [n,v] = p;
+                                 func( p.first, *p.second ); // type of p.second == std::unique_ptr<dynamic_var> or dynamic_ptr. NOTE: nullptr
+                         },
+                         [&]( const vec_type & ) {},
+                         [&]( const auto & ) {}} );
+    }
+    // call func( dynamic_var &);
+    template<class Func>
+    void foreach_vec_entry( Func &&func ) const
+    {
+        accept( overload{[&]( const map_type & ) {},
+                         [&]( const vec_type &e ) {
+                             for ( const auto &v : e )
+                             {
+                                 func( *v ); // type of v == std::unique_ptr<dynamic_var> or dynamic_ptr
+                             }
+                         },
+                         [&]( const auto & ) {}} );
     }
     template<class Visitor>
     constexpr decltype( auto ) accept( Visitor &&visitor )
@@ -207,7 +255,6 @@ public:
                              }
                              os << " ]";
                          },
-                         [&]( std::nullptr_t ) { os << "null"; },
                          [&]( const auto &e ) { os << e; }} );
     }
 

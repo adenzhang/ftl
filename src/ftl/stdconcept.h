@@ -87,11 +87,11 @@ struct hash<std::tuple<Args...>>
         static const bool value = ::std::is_same<decltype( Check<U1, U2>( 0 ) ), bool>::value;                                                      \
     }
 
-#define FTL_HAS_MEMBER( member, name ) FTL_CHECK_EXPR( name, ::std::declval<T>().member )
+#define FTL_HAS_MEMBER( name, member ) FTL_CHECK_EXPR( name, ::std::declval<T>().member )
 
-#define FTL_IS_COMPATIBLE_FUNC_ARG( func, name ) FTL_CHECK_EXPR( name, func( ::std::declval<T>() ) )
+#define FTL_IS_COMPATIBLE_FUNC_ARG( name, func ) FTL_CHECK_EXPR( name, func( ::std::declval<T>() ) )
 
-#define FTL_IS_COMPATIBLE_FUNC_ARG_LVALUE( func, name ) FTL_CHECK_EXPR( name, func( ::std::declval<T &>() ) )
+#define FTL_IS_COMPATIBLE_FUNC_ARG_LVALUE( name, func ) FTL_CHECK_EXPR( name, func( ::std::declval<T &>() ) )
 
 #define FTL_CHECK_EXPR_TYPE( traitsName, ... )                                                                                                      \
     template<typename R, typename U = void>                                                                                                         \
@@ -108,7 +108,24 @@ struct hash<std::tuple<Args...>>
         static const bool value = ::std::is_same<decltype( Check<U>( 0 ) ), bool>::value;                                                           \
     }
 
-#define FTL_HAS_MEMBER_TYPE( member, name ) FTL_CHECK_EXPR_TYPE( name, ::std::declval<T>().member )
+#define FTL_HAS_MEMBER_TYPE( name, member ) FTL_CHECK_EXPR_TYPE( name, ::std::declval<T>().member )
+
+template<class T>
+struct FTL_CHECK_TYPE_Void
+{
+    typedef void type;
+};
+#define FTL_CHECK_TYPE( traitName, ... )                                                                                                            \
+    template<class T, class U = void>                                                                                                               \
+    struct traitName                                                                                                                                \
+    {                                                                                                                                               \
+        static constexpr bool value = false;                                                                                                        \
+    };                                                                                                                                              \
+    template<class T>                                                                                                                               \
+    struct traitName<T, typename FTL_CHECK_TYPE_Void<typename __VA_ARGS__>::type>                                                                   \
+    {                                                                                                                                               \
+        static constexpr bool value = true;                                                                                                         \
+    }
 
 namespace ftl
 {
@@ -145,18 +162,16 @@ namespace tuple_utils
     auto reduce( std::tuple<Args...> &&t, Reduce &&red, Initial &&initial )
     {
         using Tuple = std::tuple<Args...>;
-        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
-            return red( initial, std::get<N>( t ) );
-        else
+        return red( initial, std::get<N>( t ) );
+        if constexpr ( N + 1 < std::tuple_size_v<Tuple> )
             return reduce<N + 1>( std::forward<Tuple>( t ), std::forward<Reduce>( red ), red( initial, std::get<N>( t ) ) );
     }
     template<size_t N, class Reduce, class Initial, class... Args>
     auto reduce( const std::tuple<Args...> &t, Reduce &&red, Initial &&initial )
     {
         using Tuple = std::tuple<Args...>;
-        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
-            return red( initial, std::get<N>( t ) );
-        else
+        return red( initial, std::get<N>( t ) );
+        if constexpr ( N + 1 < std::tuple_size_v<Tuple> )
             return reduce<( N + 1 )>( t, std::forward<Reduce>( red ), red( initial, std::get<N>( t ) ) );
     }
 
@@ -164,18 +179,16 @@ namespace tuple_utils
     void enumerate( std::tuple<Args...> &&t, Callback &&cb )
     {
         using Tuple = std::tuple<Args...>;
-        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
-            cb( N, std::get<N>( t ) );
-        else
+        cb( N, std::get<N>( t ) );
+        if constexpr ( N + 1 <= std::tuple_size_v<Tuple> )
             enumerate<N + 1>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
     }
     template<size_t N, class Callback, class... Args>
     void enumerate( const std::tuple<Args...> &t, Callback &&cb )
     {
         using Tuple = std::tuple<Args...>;
-        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
-            cb( N, std::get<N>( t ) );
-        else
+        cb( N, std::get<N>( t ) );
+        if constexpr ( N + 1 < std::tuple_size_v<Tuple> )
             enumerate<N + 1>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
     }
 
@@ -183,9 +196,8 @@ namespace tuple_utils
     void foreach ( std::tuple<Args...> &&t, Callback && cb )
     {
         using Tuple = std::tuple<Args...>;
-        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
-            cb( std::get<N>( t ) );
-        else
+        cb( std::get<N>( t ) );
+        if constexpr ( N + 1 < std::tuple_size_v<Tuple> )
             foreach
                 <N + 1>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
     }
@@ -193,11 +205,10 @@ namespace tuple_utils
     void foreach ( const std::tuple<Args...> &t, Callback && cb )
     {
         using Tuple = std::tuple<Args...>;
-        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
-            cb( std::get<N>( t ) );
-        else
+        cb( std::get<N>( t ) );
+        if constexpr ( N + 1 < std::tuple_size_v<Tuple> )
             foreach
-                <N + 1>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+                <N + 1>( t, std::forward<Callback>( cb ) );
     }
 }; // namespace tuple_utils
 
@@ -230,7 +241,7 @@ struct tuple_foreacher
     void operator()( const std::tuple<Args...> &t, Callback &&cb ) const
     {
         using Tuple = std::tuple<Args...>;
-        tuple_utils::foreach<0>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+        tuple_utils::foreach<0>( t, std::forward<Callback>( cb ) );
     }
 };
 static const tuple_foreacher tuple_foreach{};
@@ -247,7 +258,7 @@ struct tuple_enumerator
     void operator()( const std::tuple<Args...> &t, Callback &&cb ) const
     {
         using Tuple = std::tuple<Args...>;
-        tuple_utils::enumerate<0>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+        tuple_utils::enumerate<0>( t, std::forward<Callback>( cb ) );
     }
 };
 static const tuple_enumerator tuple_enumerate{};
