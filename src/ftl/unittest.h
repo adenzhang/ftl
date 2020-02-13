@@ -109,7 +109,7 @@ When run the test main function, users can specify test cases to run or not. lik
         T_EXIT_OR_THROW( ss.str(), UnitTestRequireException );                                                                                      \
     } while ( false )
 
-#define SECTION( name, ... ) for ( auto ok = StartSection( name ); ok; throw UnitTestRerunException( name ) )
+#define SECTION( name, ... ) for ( auto _ok_ = StartSection( name ); _ok_; throw UnitTestRerunException( name ) )
 
 #define ADD_TEST_CASE( funcName, ... )                                                                                                              \
     static struct funcName##_TestCase : public UnitTestCaseBase                                                                                     \

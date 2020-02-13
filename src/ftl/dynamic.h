@@ -24,6 +24,7 @@
 #include <variant>
 #include <vector>
 #include <ostream>
+#include <fstream>
 
 namespace ftl
 {
@@ -97,6 +98,8 @@ public:
     };
     template<size_t N>
     using NthType = typename NthTypeImpl<N, dynamic_map<K, PrimitiveTypes...>, PrimitiveTypes..., dynamic_vec<K, PrimitiveTypes...>>::type;
+
+    using str_type = NthType<str_type_index>;
 
     dynamic_var() = default;
 
@@ -230,7 +233,7 @@ public:
         return std::visit( std::forward<Visitor>( visitor ), as_variant() );
     }
 
-    void print_json( std::ostream &os ) const
+    void print_json( std::ostream &os, const char *quote = "\"" ) const
     {
         accept( overload{[&]( const map_type &e ) {
                              os << "{ ";
@@ -255,7 +258,13 @@ public:
                              }
                              os << " ]";
                          },
-                         [&]( const auto &e ) { os << e; }} );
+                         [&]( const auto &e ) {
+                             if ( quote )
+                                 os << quote;
+                             os << e;
+                             if ( quote )
+                                 os << quote;
+                         }} );
     }
 
     /// if K already exists, return the old value.
@@ -267,6 +276,11 @@ public:
         auto &p = as<map_type>();
         return *p.emplace( k, make_dynamic_ptr( make_dynamic<this_type, ET>( std::forward<Args>( args )... ) ) ).first->second;
     }
+    this_type &map_add_entry( const K &k, dynamic_var var )
+    {
+        auto &p = as<map_type>();
+        return *p.emplace( k, make_dynamic_ptr( std::move( var ) ) ).first->second;
+    }
 
     /// throws if it's not a vec
     /// @return ref to new added element.
@@ -275,6 +289,11 @@ public:
     {
         auto &p = as<vec_type>();
         return *p.emplace_back( make_dynamic_ptr( make_dynamic<this_type, ET>( std::forward<Args>( args )... ) ) );
+    }
+    this_type &vec_add_entry( dynamic_var var )
+    {
+        auto &p = as<vec_type>();
+        return *p.emplace_back( make_dynamic_ptr( std::move( var ) ) );
     }
 };
 
@@ -346,4 +365,188 @@ dynamic_vec<K, E, Args...> *dynamic_vec_add( dynamic_vec<K, E, Args...> &d, V &&
     return &d;
 }
 
+///////////////////////////////////////////////////////////////////////////////////
+///     dynamic_var read from string
+///////////////////////////////////////////////////////////////////////////////////
+
+// return -1 for EOF
+// 0 for error
+// 1 for string
+// other for grammar
+inline int read_json_str( std::istream &ss, std::string &s, std::ostream &err )
+{
+    struct my
+    {
+        static bool is_quote( int c )
+        {
+            return c == '\'' || c == '\"';
+        }
+        static bool is_grammar_char( int c )
+        {
+            return c == ',' || c == ':' || c == '[' || c == ']' || c == '{' || c == '}';
+        }
+        static bool is_valid_quoted_char( int c )
+        {
+            return isalnum( c ) || isspace( c );
+        }
+        static int skipUntilChar( std::istream &ss )
+        {
+            while ( ss )
+            {
+                auto c = ss.get();
+                if ( is_grammar_char( c ) || isalnum( c ) || is_quote( c ) )
+                    return c;
+                assert( isspace( c ) );
+            }
+            return EOF;
+        }
+    };
+
+    s.clear();
+    auto c = my::skipUntilChar( ss );
+    if ( c == EOF )
+    {
+        s = "EOF";
+        return -1;
+    }
+    if ( my::is_grammar_char( c ) )
+    {
+        s += char( c );
+        return c;
+    }
+    if ( my::is_quote( c ) )
+    {
+        char q = char( c );
+        while ( ss )
+        {
+            c = ss.get();
+            if ( c == q ) // quote ends
+            {
+                return 1; // got string
+            }
+            if ( c == '\\' ) // escape
+            {
+                if ( ss )
+                {
+                    auto cc = ss.get();
+                    if ( cc == '\"' || cc == '\'' )
+                        s += char( cc );
+                    else
+                    {
+                        err << "Unable to escape " << char( cc );
+                        return 0;
+                    }
+                }
+                else
+                {
+                    err << "EOF when expecting quote: " << q;
+                    return 0;
+                }
+            }
+            else // shoud error when see \n .
+            {
+                s += char( c );
+            }
+        }
+    }
+    else // isalnum, unquoted string
+    {
+        s += char( c );
+        while ( ss )
+        {
+            c = ss.peek();
+            if ( isalnum( c ) )
+            {
+                s += char( ss.get() );
+            }
+            else if ( my::is_grammar_char( c ) || std::isspace( c ) )
+                break;
+            else
+            {
+                err << " Illegal char at end of string:" << s << ", char:" << c;
+                return 0;
+            }
+        }
+        return 1; // got string
+    }
+    assert( false );
+    return 0; // never reach here
+}
+
+// 0 for error
+// other for grammar
+template<class K, class Str>
+bool dynamic_read_json( dynamic_var<K, Str> &dyn, std::istream &ss, std::ostream &err )
+{
+    using DynVar = dynamic_var<K, Str>;
+    using DynMap = typename dynamic_var<K, Str>::map_type;
+    using DynVec = typename dynamic_var<K, Str>::vec_type;
+    using DynStr = typename dynamic_var<K, Str>::str_type;
+
+    std::string s;
+    auto res = read_json_str( ss, s, err );
+    if ( res == '{' ) // read map
+    {
+        dyn = make_dynamic<DynVar, DynMap>();
+        while ( true )
+        {
+            std::string key;
+            res = read_json_str( ss, key, err );
+            if ( res == '}' ) // end of map
+                return true;
+            if ( res == ',' )
+                continue;
+            if ( res != 1 )
+            {
+                err << " | expecting map key but got " << key;
+                return false;
+            }
+            //-- now have key already
+            res = read_json_str( ss, s, err );
+            if ( res != ':' )
+            {
+                err << " | expecting : but got" << s;
+                return false;
+            }
+            DynVar child;
+            auto r = dynamic_read_json( child, ss, err );
+            if ( !r )
+            {
+                err << " | error reading value for key=" << key;
+                return false;
+            }
+            dyn.map_add_entry( Str( key ), std::move( child ) );
+        }
+    }
+    else if ( res == '[' ) // read vec
+    {
+        dyn = make_dynamic<DynVar, DynVec>();
+        while ( true )
+        {
+            DynVar child;
+            auto r = dynamic_read_json( child, ss, err );
+            if ( !r )
+            {
+                err << " | error reading vec value";
+                return false;
+            }
+            dyn.vec_add_entry( std::move( child ) );
+            res = read_json_str( ss, s, err );
+            if ( res == ']' )
+                return true;
+            if ( res == ',' )
+                continue;
+        }
+    }
+    else if ( res == 1 ) // read string
+    {
+        dyn = make_dynamic<DynVar, DynStr>( s );
+        return true;
+    }
+    else
+    {
+        err << " | expecting map or vec or string.";
+        return false;
+    }
+}
 } // namespace ftl

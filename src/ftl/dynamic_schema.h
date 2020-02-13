@@ -4,6 +4,8 @@
 #include <unordered_map>
 #include <vector>
 #include <sstream>
+#include <cmath>
+#include <climits>
 
 namespace ftl
 {
@@ -70,31 +72,71 @@ MemberSetterFunc<T, MemberType> make_member_setter( void ( *pFunc )( T &, const 
 FTL_CHECK_TYPE( HasMember_value_type, T::value_type );
 FTL_CHECK_TYPE( HasMember_key_type, T::key_type );
 FTL_CHECK_TYPE( HasMember_mapped_type, T::mapped_type );
-FTL_HAS_MEMBER( HasMember_push_back, push_back( 0 ) );
-FTL_HAS_MEMBER( HasMember_operator_sb, operator[]( 0 ) ); // square brackets
-FTL_HAS_MEMBER( HasMember_insert, insert( 0 ) );
+// FTL_HAS_MEMBER( HasMember_push_back, push_back( 0 ) );
+// FTL_HAS_MEMBER( HasMember_operator_sb, operator[]( 0 ) ); // square brackets
+// FTL_HAS_MEMBER( HasMember_insert, insert( 0 ) );
 FTL_HAS_MEMBER( HasMember_c_str, c_str() );
 FTL_HAS_MEMBER( HasMember_get_children_schema, get_children_schema );
 
-template<class T>
-static constexpr bool IsLikeMap_v = HasMember_key_type<T>::value &&HasMember_mapped_type<T>::value &&HasMember_insert<T>::value;
 
 template<class T>
-static constexpr bool IsLikeVec_v = HasMember_value_type<T>::value && !HasMember_key_type<T>::value && HasMember_push_back<T>::value &&
-                                    !HasMember_c_str<T>::value; // not a string
+static constexpr bool IsLikeMap_v = HasMember_key_type<remove_cvref_t<T>>::value &&HasMember_mapped_type<remove_cvref_t<T>>::value;
+
+template<class T>
+static constexpr bool IsLikeVec_v = HasMember_value_type<remove_cvref_t<T>>::value && !HasMember_key_type<remove_cvref_t<T>>::value &&
+                                    !HasMember_c_str<remove_cvref_t<T>>::value; //&& HasMember_push_back<remove_cvref_t<T>>::value; // not a string
 
 using DynStr = std::string;
 using DynMap = dynamic_map<std::string, DynStr>;
 using DynVec = dynamic_vec<std::string, DynStr>;
 using DynVar = dynamic_var<std::string, DynStr>;
 
-template<class T, class Str>
-bool from_string( T val, const Str &s )
+
+template<class T, class Enablement = void>
+struct from_string_impl
 {
-    assert( "not implemented" );
-    throw std::runtime_error( "from_string not implemented!" );
-    return false;
+    template<class Str>
+    bool operator()( T &val, const Str &s )
+    {
+        assert( "not implemented" );
+        throw std::runtime_error( "from_string not implemented!" );
+    }
+};
+
+template<class T>
+struct from_string_impl<T, std::enable_if_t<std::is_integral_v<T>, void>>
+{
+    template<class Str>
+    bool operator()( T &val, const Str &s )
+    {
+        auto v = std::strtoll( s.c_str(), nullptr, 10 ); // todo: optimize/fix
+        if ( v == LLONG_MAX )
+            return false;
+        val = v;
+        return true;
+    }
+};
+
+template<class T>
+struct from_string_impl<T, std::enable_if_t<std::is_floating_point_v<T>, void>>
+{
+    template<class Str>
+    bool operator()( T &val, const Str &s )
+    {
+        auto v = std::strtod( s.c_str(), nullptr ); // todo: optimize/fix
+        if ( HUGE_VAL == val )
+            return false;
+        val = v;
+        return true;
+    }
+};
+
+template<class T, class Str>
+bool from_string( T &val, const Str &s )
+{
+    return from_string_impl<T>()( val, s );
 }
+
 template<class T, class Str, class Err>
 bool convert_from_string( T &t, const Str &s, Err &err )
 {
@@ -126,7 +168,7 @@ bool parse_schema( Schema &schema, const Dyn &dyn, std::ostream &err )
                 if ( !ok )
                     return;
                 typename Schema::key_type key;
-                if ( !convert_from_string( key, keystr ) )
+                if ( !convert_from_string( key, keystr, err ) )
                 {
                     err << " | key:" << keystr;
                     ok = false;
@@ -139,7 +181,7 @@ bool parse_schema( Schema &schema, const Dyn &dyn, std::ostream &err )
                     ok = false;
                     return;
                 }
-                auto res = schema.insert( Schema::value_type( key, val ) );
+                auto res = schema.insert( typename Schema::value_type( key, val ) );
                 if ( !res.second )
                 {
                     err << " ERROR! Failed to insert into map. key: " << key << ", oldvalue: " << res.first->second << ", newvalue: " << val;
@@ -188,12 +230,7 @@ bool parse_schema( Schema &schema, const Dyn &dyn, std::ostream &err )
     }
     else if ( dyn.is_vec() ) // vector
     {
-        if constexpr ( !IsLikeVec_v<Schema> )
-        {
-            err << " ERROR! Expected vec schema type.";
-            return false;
-        }
-        else
+        if constexpr ( IsLikeVec_v<Schema> )
         {
             bool ok = true;
             dyn.foreach_vec_entry( [&]( const auto &var ) {
@@ -210,6 +247,11 @@ bool parse_schema( Schema &schema, const Dyn &dyn, std::ostream &err )
             } );
             return ok;
         }
+        else
+        {
+            err << " ERROR! Expected vec schema type.";
+            return false;
+        }
     }
     else // primitive element: string
     {
@@ -224,7 +266,8 @@ bool parse_schema( Schema &schema, const Dyn &dyn, std::ostream &err )
             err << " ERROR! Unable to parse string to map: " << str;
             return false;
         }
-        return convert_from_string( schema, str, err );
+        else
+            return convert_from_string( schema, str, err );
     }
 }
 } // namespace ftl
