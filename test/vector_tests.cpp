@@ -1,10 +1,18 @@
 #include <ftl/vector.h>
 #include <ftl/ftl.h>
-
+#include <algorithm>
 using namespace ftl;
 
 ADD_TEST_CASE( vector_tests )
 {
+    SECTION( "vector" )
+    {
+        std::vector<int> v{0, 1, 2, 3};
+        std::remove_if( v.begin(), v.end(), []( const auto &x ) { return x & 0x01; } );
+        auto p0 = v.begin(), p1 = std::next( p0 );
+        v.erase( p0, p1 );
+    }
+
     Array<char, 5> a = {'a', 'b', 'c'};
 
     REQUIRE( a.is_string == false );

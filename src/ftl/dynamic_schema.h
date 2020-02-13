@@ -6,6 +6,7 @@
 #include <sstream>
 #include <cmath>
 #include <climits>
+#include <iostream>
 
 namespace ftl
 {
@@ -33,7 +34,7 @@ struct MemberSetter
 
     void operator()( T &obj, MemberType val ) const
     {
-        obj.*pSetMember( std::move( val ) );
+        ( obj.*pSetMember )( val );
     }
 };
 
@@ -41,7 +42,7 @@ template<class T, class MemberType>
 struct MemberSetterFunc
 {
     using member_type = MemberType;
-    void ( *pFunc )( T &, MemberType val );
+    void ( *pFunc )( T &, MemberType );
     const char *name;
 
     void operator()( T &obj, MemberType val ) const
@@ -57,13 +58,13 @@ MemberAccess<T, MemberType> make_member_setter( MemberType T::*pMember, const ch
 }
 
 template<class T, class MemberType>
-MemberSetter<T, MemberType> make_member_setter( void ( T::*pSetMember )( const MemberType & ), const char *name )
+MemberSetter<T, MemberType> make_member_setter( void ( T::*pSetMember )( MemberType ), const char *name )
 {
     return MemberSetter<T, MemberType>{pSetMember, name};
 }
 
 template<class T, class MemberType>
-MemberSetterFunc<T, MemberType> make_member_setter( void ( *pFunc )( T &, const MemberType &val ), const char *name )
+MemberSetterFunc<T, MemberType> make_member_setter( void ( *pFunc )( T &, MemberType ), const char *name )
 {
     return MemberSetterFunc<T, MemberType>{pFunc, name};
 }
@@ -73,10 +74,11 @@ FTL_CHECK_TYPE( HasMember_value_type, T::value_type );
 FTL_CHECK_TYPE( HasMember_key_type, T::key_type );
 FTL_CHECK_TYPE( HasMember_mapped_type, T::mapped_type );
 // FTL_HAS_MEMBER( HasMember_push_back, push_back( 0 ) );
-// FTL_HAS_MEMBER( HasMember_operator_sb, operator[]( 0 ) ); // square brackets
+FTL_HAS_MEMBER( HasMember_operator_sb, operator[]( 0 ) ); // square brackets
 // FTL_HAS_MEMBER( HasMember_insert, insert( 0 ) );
 FTL_HAS_MEMBER( HasMember_c_str, c_str() );
 FTL_HAS_MEMBER( HasMember_get_children_schema, get_children_schema );
+FTL_HAS_MEMBER( HasMember_on_initialized, on_initialized( std::cout ) );
 
 
 template<class T>
@@ -96,7 +98,7 @@ template<class T, class Enablement = void>
 struct from_string_impl
 {
     template<class Str>
-    bool operator()( T &val, const Str &s )
+    bool operator()( T &val, const Str &s ) const
     {
         assert( "not implemented" );
         throw std::runtime_error( "from_string not implemented!" );
@@ -107,7 +109,7 @@ template<class T>
 struct from_string_impl<T, std::enable_if_t<std::is_integral_v<T>, void>>
 {
     template<class Str>
-    bool operator()( T &val, const Str &s )
+    bool operator()( T &val, const Str &s ) const
     {
         auto v = std::strtoll( s.c_str(), nullptr, 10 ); // todo: optimize/fix
         if ( v == LLONG_MAX )
@@ -121,7 +123,7 @@ template<class T>
 struct from_string_impl<T, std::enable_if_t<std::is_floating_point_v<T>, void>>
 {
     template<class Str>
-    bool operator()( T &val, const Str &s )
+    bool operator()( T &val, const Str &s ) const
     {
         auto v = std::strtod( s.c_str(), nullptr ); // todo: optimize/fix
         if ( HUGE_VAL == val )
@@ -188,6 +190,11 @@ bool parse_schema( Schema &schema, const Dyn &dyn, std::ostream &err )
                     ok = false;
                 }
             } );
+            if ( ok )
+            {
+                if constexpr ( HasMember_on_initialized<Schema>::value )
+                    schema.on_initialized( err );
+            }
             return ok;
         }
         else if constexpr ( HasMember_get_children_schema<Schema>::value ) // an object
@@ -220,6 +227,11 @@ bool parse_schema( Schema &schema, const Dyn &dyn, std::ostream &err )
                     ok = false;
                 }
             } );
+            if ( ok )
+            {
+                if constexpr ( HasMember_on_initialized<Schema>::value )
+                    schema.on_initialized( err );
+            }
             return ok;
         }
         else // schema is not map or schema class
@@ -245,6 +257,8 @@ bool parse_schema( Schema &schema, const Dyn &dyn, std::ostream &err )
                 }
                 schema.push_back( val );
             } );
+            if constexpr ( HasMember_on_initialized<Schema>::value )
+                schema.on_initialized( err );
             return ok;
         }
         else

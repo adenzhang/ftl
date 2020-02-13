@@ -45,7 +45,7 @@ struct RootSchema
         static auto &get_children_schema()
         {
             static const auto children = std::make_tuple( make_member_setter( &Teacher::name, "name" ),
-                                                          make_member_setter( &Teacher::id, "id" ),
+                                                          make_member_setter( &Teacher::set_student_id, "id" ),
                                                           make_member_setter( &Teacher::students, "students" ) );
             return children;
         }
@@ -55,12 +55,35 @@ struct RootSchema
             static auto &get_children_schema()
             {
                 static const auto children =
-                        std::make_tuple( make_member_setter( &Student::name, "name" ), make_member_setter( &Student::rate, "rate" ) );
+                        std::make_tuple( make_member_setter( &Student::name, "name" ), make_member_setter( &Student::set_rate, "rate" ) );
                 return children;
             }
+
+            // @brief on_initialized is defined, it'll be called when initialization completes.
+            void on_initialized( std::ostream &os )
+            {
+                os << "  Student " << name << " is initialized. \n";
+            }
+
+
+            // member method set_rate will be called by schema parser
+            void set_rate( float arate )
+            {
+                rate = arate;
+            }
+
             std::string name;
+
+        protected:
             float rate;
         };
+
+        // global function to set id to student.
+        static void set_student_id( Teacher &obj, int id )
+        {
+            obj.id = id;
+        }
+
         std::string name;
         int id;
         std::vector<Student> students;
@@ -79,7 +102,7 @@ struct RootSchema
     std::unordered_map<std::string, int> roomnumbers;
 };
 
-
+static_assert( HasMember_on_initialized<RootSchema::Teacher::Student>::value, "Student HasMember_on_initialized" );
 
 ADD_TEST_CASE( schema_tests )
 {
@@ -136,6 +159,12 @@ ADD_TEST_CASE( schema_tests )
 
         auto ok = parse_schema( schema, dyn, std::cout );
         REQUIRE( ok );
+
+        REQUIRE_EQ( schema.classrooms.size(), size_t( 2 ) );
+        REQUIRE_EQ( schema.roomnumbers.size(), size_t( 2 ) );
+        REQUIRE_EQ( schema.teacher.id, 123 );
+        REQUIRE_EQ( schema.teacher.name, "abc" );
+        REQUIRE_EQ( schema.teacher.students.size(), size_t( 2 ) );
     }
     DynVar dyn;
 }
