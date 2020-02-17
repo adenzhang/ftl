@@ -87,11 +87,8 @@ struct hash<std::tuple<Args...>>
         static const bool value = ::std::is_same<decltype( Check<U1, U2>( 0 ) ), bool>::value;                                                      \
     }
 
-#define FTL_HAS_MEMBER( name, member ) FTL_CHECK_EXPR( name, ::std::declval<T>().member )
-
-#define FTL_IS_COMPATIBLE_FUNC_ARG( name, func ) FTL_CHECK_EXPR( name, func( ::std::declval<T>() ) )
-
-#define FTL_IS_COMPATIBLE_FUNC_ARG_LVALUE( name, func ) FTL_CHECK_EXPR( name, func( ::std::declval<T &>() ) )
+#define FTL_HAS_OBJECT_MEMBER( name, ... ) FTL_CHECK_EXPR( name, std::is_void_v<decltype( std::declval<T>().__VA_ARGS__ )> )
+#define FTL_HAS_NESTED_TYPE( name, nestedtype ) FTL_CHECK_EXPR( name, std::declval<typename T::nestedtype>() );
 
 #define FTL_CHECK_EXPR_TYPE( traitsName, ... )                                                                                                      \
     template<typename R, typename U = void>                                                                                                         \
@@ -110,22 +107,29 @@ struct hash<std::tuple<Args...>>
 
 #define FTL_HAS_MEMBER_TYPE( name, member ) FTL_CHECK_EXPR_TYPE( name, ::std::declval<T>().member )
 
-template<class T>
-struct FTL_CHECK_TYPE_Void
+template<class R, R ret, class Func>
+struct return_value_if_not
 {
-    typedef void type;
-};
-#define FTL_CHECK_TYPE( traitName, ... )                                                                                                            \
-    template<class T, class U = void>                                                                                                               \
-    struct traitName                                                                                                                                \
-    {                                                                                                                                               \
-        static constexpr bool value = false;                                                                                                        \
-    };                                                                                                                                              \
-    template<class T>                                                                                                                               \
-    struct traitName<T, typename FTL_CHECK_TYPE_Void<typename __VA_ARGS__>::type>                                                                   \
-    {                                                                                                                                               \
-        static constexpr bool value = true;                                                                                                         \
+    Func m_func;
+    return_value_if_not( Func &&func ) : m_func( std::forward<Func>( func ) )
+    {
     }
+    return_value_if_not() = default;
+
+    template<class... Args>
+    R operator()( Args &&... args ) const
+    {
+        if constexpr ( std::is_constructible_v<bool, std::invoke_result_t<Func, Args...>> )
+        {
+            return m_func( std::forward<Args>( args )... );
+        }
+        else
+        {
+            m_func( std::forward<Args>( args )... );
+            return ret;
+        }
+    }
+};
 
 namespace ftl
 {

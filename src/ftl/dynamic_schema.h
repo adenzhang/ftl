@@ -69,16 +69,24 @@ MemberSetterFunc<T, MemberType> make_member_setter( void ( *pFunc )( T &, Member
     return MemberSetterFunc<T, MemberType>{pFunc, name};
 }
 
+FTL_HAS_NESTED_TYPE( HasMember_value_type, value_type );
+FTL_HAS_NESTED_TYPE( HasMember_key_type, key_type );
+FTL_HAS_NESTED_TYPE( HasMember_mapped_type, mapped_type );
 
-FTL_CHECK_TYPE( HasMember_value_type, T::value_type );
-FTL_CHECK_TYPE( HasMember_key_type, T::key_type );
-FTL_CHECK_TYPE( HasMember_mapped_type, T::mapped_type );
-// FTL_HAS_MEMBER( HasMember_push_back, push_back( 0 ) );
-FTL_HAS_MEMBER( HasMember_operator_sb, operator[]( 0 ) ); // square brackets
-// FTL_HAS_MEMBER( HasMember_insert, insert( 0 ) );
-FTL_HAS_MEMBER( HasMember_c_str, c_str() );
-FTL_HAS_MEMBER( HasMember_get_children_schema, get_children_schema );
-FTL_HAS_MEMBER( HasMember_on_initialized, on_initialized( std::cout ) );
+// FTL_CHECK_EXPR( HasMember_push_back, static_cast<void ( T::* )( const typename T::value_type & )>( &T::push_back ) );
+FTL_HAS_OBJECT_MEMBER( HasMember_push_back, push_back( std::declval<typename T::value_type>() ) ); // both this and above line are working.
+
+// FTL_CHECK_EXPR( HasMember_operator_sb, std::declval<T>()[size_t( 0 )] ); // square brackets
+FTL_HAS_OBJECT_MEMBER( HasMember_operator_sb, operator[]( size_t( 0 ) ) );
+
+
+FTL_HAS_OBJECT_MEMBER( HasMember_insert, insert( std::declval<typename T::value_type>() ) );
+
+FTL_CHECK_EXPR( HasMember_c_str, &T::c_str );
+FTL_CHECK_EXPR( HasMember_get_children_schema, &T::get_children_schema );
+
+// FTL_CHECK_EXPR( HasMember_on_initialized, static_cast<void ( T::* )( std::ostream & )>( &T::on_initialized ) );
+FTL_HAS_OBJECT_MEMBER( HasMember_on_initialized, on_initialized( std::cout ) );
 
 
 template<class T>
@@ -102,7 +110,7 @@ struct from_string_impl
     {
         assert( "not implemented" );
         throw std::runtime_error( "from_string not implemented!" );
-    }
+    } // namespace ftl
 };
 
 template<class T>
