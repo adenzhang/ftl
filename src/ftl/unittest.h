@@ -51,6 +51,18 @@ When run the test main function, users can specify test cases to run or not. lik
 
 #define ASSERT( expr, ... ) assert( ( expr ) && ( "error:" __VA_ARGS__ ) )
 
+#define ASSERT_EQ( a, b )                                                                                                                           \
+    do                                                                                                                                              \
+    {                                                                                                                                               \
+        auto v_a_ = ( a );                                                                                                                          \
+        auto v_b_ = ( b );                                                                                                                          \
+        if ( v_a_ != vb )                                                                                                                           \
+        {                                                                                                                                           \
+            std::cerr << "ERROR EXPECT_EQ:<" #a "> == <" #b << ">. But got <" << v_a_ << "> != <" << v_b_ << ">" << std::endl;                      \
+            abort();                                                                                                                                \
+        }                                                                                                                                           \
+    } while ( 0 )
+
 #define T_EXIT_OR_THROW( ERRORSTR, EXCEPTIONTYPE )                                                                                                  \
     if ( DoesAbortOnError() )                                                                                                                       \
     {                                                                                                                                               \
