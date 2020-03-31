@@ -1,5 +1,5 @@
 #include <cstdlib>
-#include <ftl/catch_or_ignore.h>
+#include <ftl/unittest.h>
 #include <ftl/out_printer.h>
 #include <signal.h>
 #include <thread>
@@ -14,13 +14,13 @@ int read_and_execute_command( size_t n, bool bcrash = false )
         outPrinter.println( "will crach" );
         int *p = nullptr;
         *p = 234;
-        return 0;
     }
     else
     {
         int x = 3;
         return x + n;
     }
+    return 0;
 }
 void test_try( size_t N, bool bcrash = false )
 {
@@ -42,7 +42,8 @@ void test_try( size_t N, bool bcrash = false )
     auto tsStop = std::chrono::steady_clock::now();
     std::cout << "- processing time(ns): " << ( tsStop - tsStart ).count() << ", latency(ns):" << ( tsStop - tsStart ).count() / N << std::endl;
 }
-TEST_FUNC( try_catch_tests )
+
+ADD_TEST_CASE( try_catch_tests )
 {
     FTL_TRY_INSTALL1();
     size_t N = 10000000;

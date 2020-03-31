@@ -123,7 +123,7 @@ namespace internal
         return {};                                                                                                                                  \
     }                                                                                                                                               \
                                                                                                                                                     \
-    inline bool str_to(::std::string_view s, N &e )                                                                                                 \
+    inline bool str_to( ::std::string_view s, N &e )                                                                                                \
     {                                                                                                                                               \
         if ( !s.length() )                                                                                                                          \
             return false;                                                                                                                           \
@@ -140,7 +140,7 @@ namespace internal
     }                                                                                                                                               \
                                                                                                                                                     \
                                                                                                                                                     \
-    inline ::std::ostream &operator<<(::std::ostream &os, N e )                                                                                     \
+    inline ::std::ostream &operator<<( ::std::ostream &os, N e )                                                                                    \
     {                                                                                                                                               \
         os << ( static_cast<std::underlying_type_t<N>>( e ) == 0 ? '0' : static_cast<std::underlying_type_t<N>>( e ) ) << '('                       \
            << to_cstr( e, "<unknown>" ) << ')';                                                                                                     \

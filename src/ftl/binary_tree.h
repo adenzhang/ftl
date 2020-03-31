@@ -116,7 +116,8 @@ template<class It,
 Node *create_tree( It itBegin, It itEnd, const F &nullValOrTester )
 {
     using ValT = std::remove_const_t<std::remove_reference_t<decltype( *std::declval<It>() )>>;
-    return create_tree( itBegin, itEnd, []( const ValT &v ) { return v; }, nullValOrTester );
+    return create_tree(
+            itBegin, itEnd, []( const ValT &v ) { return v; }, nullValOrTester );
 }
 
 template<class Inserter, class Node, class ValConvert, class NullVal>
@@ -180,7 +181,8 @@ size_t insert_from_tree( Inserter it, const Node *pRoot, const NullVal &nullval 
 {
     using OutValT = typename Inserter::container_type::value_type;
 
-    return insert_from_tree( it, pRoot, []( const OutValT &v ) { return v; }, nullval );
+    return insert_from_tree(
+            it, pRoot, []( const OutValT &v ) { return v; }, nullval );
 }
 
 /*********************************

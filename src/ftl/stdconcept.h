@@ -87,11 +87,8 @@ struct hash<std::tuple<Args...>>
         static const bool value = ::std::is_same<decltype( Check<U1, U2>( 0 ) ), bool>::value;                                                      \
     }
 
-#define FTL_HAS_MEMBER( member, name ) FTL_CHECK_EXPR( name, ::std::declval<T>().member )
-
-#define FTL_IS_COMPATIBLE_FUNC_ARG( func, name ) FTL_CHECK_EXPR( name, func( ::std::declval<T>() ) )
-
-#define FTL_IS_COMPATIBLE_FUNC_ARG_LVALUE( func, name ) FTL_CHECK_EXPR( name, func( ::std::declval<T &>() ) )
+#define FTL_HAS_OBJECT_MEMBER( name, ... ) FTL_CHECK_EXPR( name, std::is_void_v<decltype( std::declval<T>().__VA_ARGS__ )> )
+#define FTL_HAS_NESTED_TYPE( name, nestedtype ) FTL_CHECK_EXPR( name, std::declval<typename T::nestedtype>() );
 
 #define FTL_CHECK_EXPR_TYPE( traitsName, ... )                                                                                                      \
     template<typename R, typename U = void>                                                                                                         \
@@ -108,7 +105,31 @@ struct hash<std::tuple<Args...>>
         static const bool value = ::std::is_same<decltype( Check<U>( 0 ) ), bool>::value;                                                           \
     }
 
-#define FTL_HAS_MEMBER_TYPE( member, name ) FTL_CHECK_EXPR_TYPE( name, ::std::declval<T>().member )
+#define FTL_HAS_MEMBER_TYPE( name, member ) FTL_CHECK_EXPR_TYPE( name, ::std::declval<T>().member )
+
+template<class R, R ret, class Func>
+struct return_value_if_not
+{
+    Func m_func;
+    return_value_if_not( Func &&func ) : m_func( std::forward<Func>( func ) )
+    {
+    }
+    return_value_if_not() = default;
+
+    template<class... Args>
+    R operator()( Args &&... args ) const
+    {
+        if constexpr ( std::is_constructible_v<bool, std::invoke_result_t<Func, Args...>> )
+        {
+            return m_func( std::forward<Args>( args )... );
+        }
+        else
+        {
+            m_func( std::forward<Args>( args )... );
+            return ret;
+        }
+    }
+};
 
 namespace ftl
 {
@@ -145,18 +166,16 @@ namespace tuple_utils
     auto reduce( std::tuple<Args...> &&t, Reduce &&red, Initial &&initial )
     {
         using Tuple = std::tuple<Args...>;
-        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
-            return red( initial, std::get<N>( t ) );
-        else
+        return red( initial, std::get<N>( t ) );
+        if constexpr ( N + 1 < std::tuple_size_v<Tuple> )
             return reduce<N + 1>( std::forward<Tuple>( t ), std::forward<Reduce>( red ), red( initial, std::get<N>( t ) ) );
     }
     template<size_t N, class Reduce, class Initial, class... Args>
     auto reduce( const std::tuple<Args...> &t, Reduce &&red, Initial &&initial )
     {
         using Tuple = std::tuple<Args...>;
-        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
-            return red( initial, std::get<N>( t ) );
-        else
+        return red( initial, std::get<N>( t ) );
+        if constexpr ( N + 1 < std::tuple_size_v<Tuple> )
             return reduce<( N + 1 )>( t, std::forward<Reduce>( red ), red( initial, std::get<N>( t ) ) );
     }
 
@@ -164,18 +183,16 @@ namespace tuple_utils
     void enumerate( std::tuple<Args...> &&t, Callback &&cb )
     {
         using Tuple = std::tuple<Args...>;
-        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
-            cb( N, std::get<N>( t ) );
-        else
+        cb( N, std::get<N>( t ) );
+        if constexpr ( N + 1 <= std::tuple_size_v<Tuple> )
             enumerate<N + 1>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
     }
     template<size_t N, class Callback, class... Args>
     void enumerate( const std::tuple<Args...> &t, Callback &&cb )
     {
         using Tuple = std::tuple<Args...>;
-        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
-            cb( N, std::get<N>( t ) );
-        else
+        cb( N, std::get<N>( t ) );
+        if constexpr ( N + 1 < std::tuple_size_v<Tuple> )
             enumerate<N + 1>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
     }
 
@@ -183,9 +200,8 @@ namespace tuple_utils
     void foreach ( std::tuple<Args...> &&t, Callback && cb )
     {
         using Tuple = std::tuple<Args...>;
-        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
-            cb( std::get<N>( t ) );
-        else
+        cb( std::get<N>( t ) );
+        if constexpr ( N + 1 < std::tuple_size_v<Tuple> )
             foreach
                 <N + 1>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
     }
@@ -193,11 +209,10 @@ namespace tuple_utils
     void foreach ( const std::tuple<Args...> &t, Callback && cb )
     {
         using Tuple = std::tuple<Args...>;
-        if constexpr ( N + 1 == std::tuple_size_v<Tuple> )
-            cb( std::get<N>( t ) );
-        else
+        cb( std::get<N>( t ) );
+        if constexpr ( N + 1 < std::tuple_size_v<Tuple> )
             foreach
-                <N + 1>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+                <N + 1>( t, std::forward<Callback>( cb ) );
     }
 }; // namespace tuple_utils
 
@@ -230,7 +245,7 @@ struct tuple_foreacher
     void operator()( const std::tuple<Args...> &t, Callback &&cb ) const
     {
         using Tuple = std::tuple<Args...>;
-        tuple_utils::foreach<0>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+        tuple_utils::foreach<0>( t, std::forward<Callback>( cb ) );
     }
 };
 static const tuple_foreacher tuple_foreach{};
@@ -247,7 +262,7 @@ struct tuple_enumerator
     void operator()( const std::tuple<Args...> &t, Callback &&cb ) const
     {
         using Tuple = std::tuple<Args...>;
-        tuple_utils::enumerate<0>( std::forward<Tuple>( t ), std::forward<Callback>( cb ) );
+        tuple_utils::enumerate<0>( t, std::forward<Callback>( cb ) );
     }
 };
 static const tuple_enumerator tuple_enumerate{};

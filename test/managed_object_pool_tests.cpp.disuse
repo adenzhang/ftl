@@ -1,5 +1,5 @@
 #include "ftl/managed_object_pool.h"
-#include <ftl/catch_or_ignore.h>
+#include <ftl/unittest.h>
 
 #include <cassert>
 #include <chrono>
@@ -176,7 +176,7 @@ static int main_test( int argc, const char *argv[] )
     std::cout << "- cpp time(ms): " << ( tsStop - tsStart ).count() / 1000 / 1000 << std::endl;
     return 0;
 }
-TEST_FUNC( managed_object_pool_tests )
+ADD_TEST_CASE( managed_object_pool_tests )
 {
     REQUIRE( 1 <= 3 );
     const char *argv[] = {"main", "5"};

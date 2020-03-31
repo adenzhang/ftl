@@ -26,6 +26,7 @@ namespace ftl
 {
 
 // MPSC lock free bounded array queue
+// todo: cache line optimization
 template<class T, class Alloc = std::allocator<T>, size_t Align = 64>
 class MPSCBoundedQueue
 {

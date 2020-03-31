@@ -1,6 +1,7 @@
 
 # cmake -G "Eclipse CDT4 - Unix Makefiles" -D_ECLIPSE_VERSION=4.2 -DCMAKE_BUILD_TYPE=Debug ../build
 cmake_minimum_required( VERSION 2.6 )
+project(ftl)
 
 # check 64 bit
 if( CMAKE_SIZEOF_VOID_P EQUAL 8 )

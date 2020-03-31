@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <ftl/catch_or_ignore.h>
+#include <ftl/unittest.h>
 
 #include <algorithm>
 #include <bitset>
@@ -55,3 +55,5 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#include <ftl/log.h>
+#include <ftl/vector.h>
