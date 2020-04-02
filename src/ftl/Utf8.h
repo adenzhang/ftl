@@ -92,6 +92,10 @@ struct Utf8
     struct Iterator
     {
         using value_type = UnicodeValueType; // unicode value
+        using iterator_category = std::forward_iterator_tag;
+        using difference_type = std::ptrdiff_t;
+        using reference = value_type;
+        using pointer = value_type *;
 
         const unsigned char *s = nullptr;
         DecodeResult val;
@@ -131,6 +135,7 @@ struct Utf8
         Iterator &operator++()
         {
             new ( this ) Iterator( (const char *)s + val.second );
+            return *this;
         }
         Iterator operator++( int )
         {
@@ -144,11 +149,19 @@ struct Utf8
     {
     }
 
-    Iterator begin()
+    Iterator begin() const
     {
         return {s};
     }
-    Iterator end()
+    Iterator end() const
+    {
+        return {};
+    }
+    Iterator cbegin() const
+    {
+        return {s};
+    }
+    Iterator cend() const
     {
         return {};
     }

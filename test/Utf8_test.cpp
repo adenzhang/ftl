@@ -3,14 +3,13 @@
 
 using namespace std;
 using namespace jz;
-
 ADD_TEST_CASE( utf8_tests )
 {
     char buf[5];
     char s[] = "a我1";
 
     vector<int> unicodeValues;
-    // copy(Utf8Iter::Iterator(s), Utf8Iter::Iterator(), back_inserter(unicodeValues) );
+    copy( Utf8Int::Iterator( s ), Utf8Int::Iterator(), back_inserter( unicodeValues ) );
 
     cout << "- utf8 decoding" << endl;
     for ( auto c : Utf8Int( s ) )
