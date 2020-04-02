@@ -27,6 +27,7 @@
 #include <stack>
 #include <unordered_map>
 #include <vector>
+#include <fstream>
 
 namespace ftl
 {
@@ -42,13 +43,39 @@ constexpr StrLiteral operator""_sl( const char *s, size_t n )
     return {s, n};
 }
 
+/******************************
+   scoped_stream_redirect & scoped_stream_redirect_to_file.
+   Usage:
+{
+    using namespace ftl;
+    MinScalarProduct sln;
+    SECTION( "basic" )
+    {
+        auto redirectin = ftl::make_scoped_istream_redirect( std::cin, R"(2
+                                                                 3
+                                                                 1 3 -5
+                                                                 -2 4 1
+                                                                 5
+                                                                 1 2 3 4 5
+                                                                 1 0 1 0 1
+                                                                 )"_sl );
+        sln.main();
+    }
+    SECTION( "from small file" )
+    {
+        scoped_stream_redirect_to_file redirectin( std::cin, "data/A-small-practice.in", std::fstream::in );
+        scoped_stream_redirect_to_file redirectout( std::cout, "data/A-small-practice.out", std::fstream::out );
+        sln.main();
+    }
+}
+ * **********************************************************/
 template<class IOType, class TempIO>
 struct scoped_stream_redirect
 {
     using stream_type = TempIO;
     stream_type ss;
-    std::streambuf *rdbuf;
-    IOType &io;
+    std::streambuf *rdbuf = nullptr; // original rdbuf
+    IOType &io; // stream to redirect
 
     scoped_stream_redirect() = delete;
     scoped_stream_redirect( const scoped_stream_redirect & ) = delete;
@@ -57,9 +84,10 @@ struct scoped_stream_redirect
         a.rdbuf = nullptr;
     }
 
-    scoped_stream_redirect( IOType &io, TempIO &ss ) : rdbuf( io.rdbuf() ), io( io )
+    // temp ss is not used when another is provided.
+    scoped_stream_redirect( IOType &io, TempIO &another ) : rdbuf( io.rdbuf() ), io( io )
     {
-        io.rdbuf( ss.rdbuf() );
+        io.rdbuf( another.rdbuf() );
     }
     scoped_stream_redirect( IOType &io, const char *s ) : ss( s ), rdbuf( io.rdbuf() ), io( io )
     {
@@ -68,7 +96,43 @@ struct scoped_stream_redirect
     ~scoped_stream_redirect()
     {
         if ( rdbuf )
+        {
             io.rdbuf( rdbuf );
+            rdbuf = nullptr;
+        }
+    }
+};
+
+/// redirect to file
+template<class IOType>
+struct scoped_stream_redirect_to_file
+{
+    //    std::ifstream ifs;
+    std::fstream fst;
+    std::streambuf *rdbuf = nullptr; // original rdbuf
+    IOType &io; // stream to redirect
+
+    scoped_stream_redirect_to_file( IOType &io, const char *filename, std::ios_base::openmode mode ) : io( io )
+    {
+        fst.open( filename, mode );
+        if ( fst.is_open() )
+        {
+            rdbuf = io.rdbuf();
+            io.rdbuf( fst.rdbuf() );
+        }
+        else
+        {
+            rdbuf = nullptr;
+            throw std::runtime_error( std::string( "failed to open file " ) + filename );
+        }
+    }
+    ~scoped_stream_redirect_to_file()
+    {
+        if ( rdbuf )
+        {
+            io.rdbuf( rdbuf );
+            rdbuf = nullptr;
+        }
     }
 };
 
@@ -79,18 +143,18 @@ scoped_stream_redirect<IOType, TempIO> make_scoped_stream_redirect( IOType &io, 
 };
 
 template<class IOType, class T, typename = std::enable_if_t<std::is_constructible_v<T, const char>, void>>
-scoped_stream_redirect<IOType, std::stringstream> make_scoped_stream_redirect( IOType &io, T *str )
+scoped_stream_redirect<IOType, std::stringstream> make_scoped_istream_redirect( IOType &io, T *str )
 {
     return {io, static_cast<const char *>( str )};
 };
 template<class IOType, class T, size_t N, typename = std::enable_if_t<std::is_constructible_v<T, const char>, void>>
-scoped_stream_redirect<IOType, std::stringstream> make_scoped_stream_redirect( IOType &io, T str[N] )
+scoped_stream_redirect<IOType, std::stringstream> make_scoped_istream_redirect( IOType &io, T str[N] )
 {
     return {io, static_cast<const char *>( str )};
 };
 
 template<class IOType, class T, typename = std::enable_if_t<std::is_same_v<T, StrLiteral>, void>>
-scoped_stream_redirect<IOType, std::stringstream> make_scoped_stream_redirect( IOType &io, T str )
+scoped_stream_redirect<IOType, std::stringstream> make_scoped_istream_redirect( IOType &io, T str )
 {
     return {io, static_cast<const char *>( str.data )};
 };
