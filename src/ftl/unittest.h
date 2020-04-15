@@ -9,6 +9,10 @@
 #include <unordered_set>
 #include <cassert>
 
+#include <execinfo.h>
+#include <cxxabi.h>
+#include <string.h>
+
 /************************************************************************
  *
 Usage:
@@ -67,6 +71,58 @@ When run the test main function, users can specify test cases to run or not. lik
 #define ASSERT_EQ( a, b, ... ) ASSERT_OP( a, b, ==, __VA_ARGS__ )
 #define ASSERT_NE( a, b, ... ) ASSERT_OP( a, b, !=, __VA_ARGS__ )
 
+///////////////////////////// PASSERT_EQ : PrintStack when assertion fails //////////////////////////////
+///
+namespace jz
+{
+template<class OStream, size_t max_frames = 63>
+void PrintStack( OStream &os, int skipFrames = 3 )
+{
+    void *addrlist[max_frames + 1];
+    int addrlen = backtrace( addrlist, sizeof( addrlist ) / sizeof( void * ) );
+    if ( addrlen == 0 )
+        return;
+    char **symbollist = backtrace_symbols( addrlist, addrlen ); // resolve addresses into strings containing "filename(function+address)",
+    char funcname[128];
+    for ( int i = skipFrames; i < addrlen; i++ )
+    {
+        char *begin_name = strchr( symbollist[i], '(' ), *begin_offset = begin_name ? strchr( begin_name, '+' ) : nullptr,
+             *end_offset = begin_offset ? strchr( begin_offset, ')' ) : nullptr;
+        if ( begin_name && begin_offset && end_offset && begin_name < begin_offset )
+        {
+            *begin_name++ = '\0';
+            *begin_offset++ = '\0';
+            *end_offset = '\0';
+            int status;
+            size_t funcnamelen = 128;
+            abi::__cxa_demangle( begin_name, funcname, &funcnamelen, &status );
+            os << "  " << symbollist[i] << " : " << ( status == 0 ? funcname : begin_name ) << "+" << begin_offset << std::endl;
+        }
+        else
+        {
+            os << "  " << symbollist[i] << std::endl; // couldn't parse the line? print the whole line.
+        }
+    }
+    free( symbollist );
+}
+} // namespace jz
+#define PASSERT_OP( a, b, OP, ... )                                                                                                                 \
+    do                                                                                                                                              \
+    {                                                                                                                                               \
+        auto _a = ( a );                                                                                                                            \
+        auto _b = ( b );                                                                                                                            \
+        if ( !( _a OP _b ) )                                                                                                                        \
+        {                                                                                                                                           \
+            std::cerr << __FILE__ << ":" << __LINE__ << " ASSERT_OP<" #a #OP #b << ">. But got <" << _a << #OP << _b << "> " __VA_ARGS__            \
+                      << std::endl;                                                                                                                 \
+            jz::PrintStack( std::cerr );                                                                                                            \
+            abort();                                                                                                                                \
+        }                                                                                                                                           \
+    } while ( 0 )
+#define PASSERT_EQ( a, b, ... ) PASSERT_OP( a, b, ==, __VA_ARGS__ )
+#define PASSERT_NE( a, b, ... ) PASSERT_OP( a, b, !=, __VA_ARGS__ )
+
+//////////////////////////////////////////////////////////////////
 
 #define T_EXIT_OR_THROW( ERRORSTR, EXCEPTIONTYPE )                                                                                                  \
     if ( DoesAbortOnError() )                                                                                                                       \
