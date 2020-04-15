@@ -51,17 +51,22 @@ When run the test main function, users can specify test cases to run or not. lik
 
 #define ASSERT( expr, ... ) assert( ( expr ) && ( "error:" __VA_ARGS__ ) )
 
-#define ASSERT_EQ( a, b )                                                                                                                           \
+#define ASSERT_OP( a, b, OP, ... )                                                                                                                  \
     do                                                                                                                                              \
     {                                                                                                                                               \
-        auto v_a_ = ( a );                                                                                                                          \
-        auto v_b_ = ( b );                                                                                                                          \
-        if ( v_a_ != vb )                                                                                                                           \
+        auto _a = ( a );                                                                                                                            \
+        auto _b = ( b );                                                                                                                            \
+        if ( !( _a OP _b ) )                                                                                                                        \
         {                                                                                                                                           \
-            std::cerr << "ERROR EXPECT_EQ:<" #a "> == <" #b << ">. But got <" << v_a_ << "> != <" << v_b_ << ">" << std::endl;                      \
+            std::cerr << __FILE__ << ":" << __LINE__ << " ASSERT_OP<" #a #OP #b << ">. But got <" << _a << #OP << _b << "> " __VA_ARGS__            \
+                      << std::endl;                                                                                                                 \
             abort();                                                                                                                                \
         }                                                                                                                                           \
     } while ( 0 )
+
+#define ASSERT_EQ( a, b, ... ) ASSERT_OP( a, b, ==, __VA_ARGS__ )
+#define ASSERT_NE( a, b, ... ) ASSERT_OP( a, b, !=, __VA_ARGS__ )
+
 
 #define T_EXIT_OR_THROW( ERRORSTR, EXCEPTIONTYPE )                                                                                                  \
     if ( DoesAbortOnError() )                                                                                                                       \
