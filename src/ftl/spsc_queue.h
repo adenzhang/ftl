@@ -105,8 +105,8 @@ public:
         return pushpos >= poppos ? ( pushpos - poppos ) : ( mCap - poppos + pushpos );
     }
 
-    template<class... Args>
-    T *push( Args &&... args )
+    // get the position for push operation.
+    T *prepare_push() const
     {
         if ( !mCap )
             return nullptr;
@@ -114,12 +114,27 @@ public:
         auto poppos = mPopPos.load( std::memory_order_acquire ) % mCap;
         if ( ( pushpos + 1 ) % mCap == poppos ) // full
             return nullptr;
-        new ( mBuf + pushpos ) T( std::forward<Args>( args )... );
-        mPushPos.fetch_add( 1, std::memory_order_acq_rel );
         return mBuf + pushpos;
     }
+    // prepare_push must be called before commit_push
+    void commit_push()
+    {
+        mPushPos.fetch_add( 1, std::memory_order_acq_rel );
+    }
 
-    T *top()
+    template<class... Args>
+    T *push( Args &&... args )
+    {
+        if ( auto p = prepare_push() )
+        {
+            new ( p ) T( std::forward<Args>( args )... );
+            commit_push();
+            return p;
+        }
+        return nullptr;
+    }
+
+    T *top() const
     {
         if ( !mCap )
             return nullptr;

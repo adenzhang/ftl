@@ -5,6 +5,7 @@
 
 namespace ftl
 {
+using Byte = unsigned char;
 
 inline constexpr bool is_pow2( std::size_t n )
 {
@@ -19,6 +20,56 @@ inline constexpr Int align_up( Int n, Int uiAlignment )
     assert( is_pow2( uiAlignment ) );
     return ( n + ( uiAlignment - 1 ) ) & ~( uiAlignment - 1 );
 }
+
+////////////////////////////////////////////////////////////////////
+/// \brief Instrusive Singly List - Atomic Operations
+////////////////////////////////////////////////////////////////////
+
+template<typename T>
+void PushSinglyListNode( std::atomic<T *> *head, T *node, std::atomic<T *> T::*pMemberNext )
+{
+    T *pHead = nullptr;
+    do
+    {
+        pHead = head->load();
+        node->*pMemberNext = pHead;
+    } while ( !head->compare_exchange_weak( pHead, node ) );
+}
+
+template<typename T>
+T *PopSinglyListNode( std::atomic<T *> *head, std::atomic<T *> T::*pMemberNext )
+{
+    auto pHead = head->load();
+    T *pNext = nullptr;
+    do
+    {
+        if ( !pHead )
+            break;
+        pNext = ( pHead->*pMemberNext ).load();
+    } while ( !head->compare_exchange_weak( pHead, pNext ) );
+    return pHead;
+}
+
+// non-atomic push singly list node
+template<typename T>
+void PushSinglyListNode( T **head, T *node, T *T::*pMemberNext )
+{
+    node->*pMemberNext = *head;
+    *head = node;
+}
+
+template<typename T>
+T *PopSinglyListNode( T **head, T *T::*pMemberNext )
+{
+    if ( *head )
+    {
+        T *top = *head;
+        *head = top->*pMemberNext;
+        return top;
+    }
+    return nullptr;
+}
+
 
 /////////////////////////////////////////////////////////////////////////////////
 ///    FreeList, AtomicFreeList
