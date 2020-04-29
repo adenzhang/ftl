@@ -8,7 +8,7 @@ ADD_TEST_CASE( MemPool_tests )
     SECTION( "basic" )
     {
 
-        MemPool<true> pool( AllocRequest{100, 500} );
+        MemPool<false> pool( AllocRequest{100, 500} );
         REQUIRE_EQ( pool.capacity(), 500 );
         REQUIRE_EQ( pool.free_size(), 500 );
         auto p = pool.malloc();

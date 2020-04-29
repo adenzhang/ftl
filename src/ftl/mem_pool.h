@@ -25,74 +25,6 @@
 namespace ftl
 {
 
-// slabs are linked into list. Each slab contains multiple slots which are can allocated by calling MemPool::malloc().
-// slab 0: |SlabHeader|..|slot 1|slot 2|....|
-//            |
-// slab 1: |SlabHeader|..|slots ...|
-// other slabs ....
-
-template<bool IsAtomic>
-struct SlabHeader
-{
-    using NextElemPtrType = std::conditional_t<IsAtomic, std::atomic<SlabHeader *>, SlabHeader *>;
-    NextElemPtrType pNext{};
-    std::size_t m_slabSize = 0;
-
-    SlabHeader() = default;
-    SlabHeader( std::size_t n ) : m_slabSize( n )
-    {
-    }
-};
-
-// SlotHeader doesn't calculated as part of slot size.
-template<bool IsAtomic>
-struct SlotHeader
-{
-    using NextElemPtrType = std::conditional_t<IsAtomic, std::atomic<SlotHeader *>, SlotHeader *>;
-    NextElemPtrType pNext{};
-};
-
-template<bool IsAtomic>
-struct SlabInfo
-{
-    std::size_t firstSlotOffset, slotSize, slotCount;
-
-    // @return number of slots segregated. -1 for too small slot for slot header.
-    int Init( std::size_t slabAddr, std::size_t slabsize, std::size_t slotAlignment, std::size_t slotMinSize )
-    {
-        if ( slabsize < sizeof( SlabHeader<IsAtomic> ) )
-            return -1;
-        firstSlotOffset = ftl::align_up( slabAddr + sizeof( SlabHeader<IsAtomic> ), slotAlignment ) - slabAddr;
-        if ( firstSlotOffset >= slabsize )
-            return 0;
-        slotSize = ftl::align_up( slotMinSize, slotAlignment );
-        slotCount = ( slabsize - firstSlotOffset ) / slotSize;
-        return slotCount;
-    }
-};
-
-// @return number of slots segregated. -1 for too small slot for slot header.
-template<bool IsAtomic>
-int segregate_slab( ftl::Byte *slab,
-                    std::size_t slabsize,
-                    std::size_t slotMinSize,
-                    std::size_t slotAlignment,
-                    typename SlabHeader<IsAtomic>::NextElemPtrType &slatList,
-                    typename SlotHeader<IsAtomic>::NextElemPtrType &slotFreeList )
-{
-    SlabInfo<IsAtomic> slabInfo;
-    if ( slabInfo.Init( reinterpret_cast<std::size_t>( slab ), slabsize, slotAlignment, slotMinSize ) < 0 )
-        return -1;
-    new ( slab ) SlabHeader<IsAtomic>( slabsize );
-    std::size_t k = 0;
-    for ( auto pSlot = slab + slabInfo.firstSlotOffset; k < slabInfo.slotCount; ++k, pSlot += slabInfo.slotSize )
-    {
-        ftl::PushSinglyListNode( &slotFreeList, reinterpret_cast<SlotHeader<IsAtomic> *>( pSlot ), &SlotHeader<IsAtomic>::pNext );
-    }
-    ftl::PushSinglyListNode( &slatList, reinterpret_cast<SlabHeader<IsAtomic> *>( slab ), &SlabHeader<IsAtomic>::pNext );
-    return slabInfo.slotCount;
-}
-
 struct AllocRequest
 {
     std::size_t slotSize = 0;
@@ -109,14 +41,44 @@ struct AllocRequest
 /// Multiple slots are allocated in a slab. Multiple slabs are linked into a list.
 /// The Memory pool is thread-safe only if IsAtomic.
 template<bool IsAtomic>
-struct MemPool
+class MemPool
 {
-    SlotHeader<IsAtomic> m_freeList;
-    SlabHeader<IsAtomic> m_slabList;
+protected:
+    // slabs are linked into list. Each slab contains multiple slots which are can allocated by calling MemPool::malloc().
+    // slab 0: |SlabHeader|..|slot 1|slot 2|....|
+    //            |
+    // slab 1: |SlabHeader|..|slots ...|
+    // other slabs ....
+    struct SlabHeader
+    {
+        using NextElemPtrType = std::conditional_t<IsAtomic, std::atomic<SlabHeader *>, SlabHeader *>;
+        NextElemPtrType pNext{};
+        std::size_t m_slabSize = 0;
+
+        SlabHeader() = default;
+        SlabHeader( std::size_t n ) : m_slabSize( n )
+        {
+        }
+    };
+
+    struct SlotHeader
+    {
+        using NextElemPtrType = std::conditional_t<IsAtomic, std::atomic<SlotHeader *>, SlotHeader *>;
+        NextElemPtrType pNext{};
+    };
+
+    SlotHeader m_freeList;
+    SlabHeader m_slabList;
 
     AllocRequest m_defaultAllocReq;
     std::atomic<std::ptrdiff_t> m_totalSlots = 0, m_allocatedSlots = 0; // for tracking allocations.
 
+    struct SlabInfo
+    {
+        std::size_t slabSize, firstSlotOffset, slotSize, slotCount;
+    };
+
+public:
     MemPool() = default;
 
     // @param slotSize size of each slot which is allocated by calling malloc().
@@ -124,10 +86,10 @@ struct MemPool
     // @param slabGranuity usually multiple of page size (4096).
     MemPool( const AllocRequest &ar )
     {
-        Init( ar );
+        init( ar );
     }
 
-    int Init( const AllocRequest &ar )
+    int init( const AllocRequest &ar )
     {
         m_defaultAllocReq = ar;
         return allocate_slab( ar );
@@ -137,16 +99,14 @@ struct MemPool
     // @return number of slots allocated. -1 for error.
     int allocate_slab( const AllocRequest &r )
     {
-        std::size_t firstSlotOffset = ftl::align_up( sizeof( SlabHeader<IsAtomic> ), r.slotAlignment );
-        auto slotSize = ftl::align_up( r.slotSize, r.slotAlignment );
-        std::size_t slabSize = firstSlotOffset + slotSize * r.minSlotsPerSlab;
-        if ( r.alignupToSlabGranularity )
-            slabSize = ftl::align_up( slabSize, r.slabGranularity );
+        SlabInfo slabInfo;
+        if ( !populateSlabInfo( slabInfo, r, sizeof( SlabHeader ) ) )
+            return -1;
 
-        auto pSlab = ftl::sys_aligned_reserve_and_commit( slabSize, r.slabAlignment, r.slabGranularity );
+        auto pSlab = ftl::sys_aligned_reserve_and_commit( slabInfo.slabSize, r.slabAlignment, r.slabGranularity );
         if ( !pSlab ) // failed allocatation.
             return -1;
-        auto ret = segregate_slab<IsAtomic>( pSlab, slabSize, r.slotSize, r.slotAlignment, m_slabList.pNext, m_freeList.pNext );
+        auto ret = segregate_slab( pSlab, slabInfo, m_slabList.pNext, m_freeList.pNext );
         assert( ret > 0 );
         if ( ret > 0 )
             m_totalSlots.fetch_add( std::ptrdiff_t( ret ) );
@@ -156,7 +116,7 @@ struct MemPool
     ~MemPool()
     {
         assert( free_size() == capacity() );
-        while ( auto p = ftl::PopSinglyListNode( &m_slabList.pNext, &SlabHeader<IsAtomic>::pNext ) )
+        while ( auto p = ftl::PopSinglyListNode( &m_slabList.pNext, &SlabHeader::pNext ) )
         {
             ftl::sys_release( p, p->m_slabSize );
         }
@@ -165,7 +125,7 @@ struct MemPool
     // allocate a slot.
     void *malloc()
     {
-        auto p = ftl::PopSinglyListNode( &m_freeList.pNext, &SlotHeader<IsAtomic>::pNext );
+        auto p = ftl::PopSinglyListNode( &m_freeList.pNext, &SlotHeader::pNext );
         if ( !p )
         {
             assert( m_defaultAllocReq.slotSize );
@@ -175,7 +135,7 @@ struct MemPool
             // slow path
             allocate_slab( m_defaultAllocReq );
         }
-        if ( ( p = ftl::PopSinglyListNode( &m_freeList.pNext, &SlotHeader<IsAtomic>::pNext ) ) )
+        if ( ( p = ftl::PopSinglyListNode( &m_freeList.pNext, &SlotHeader::pNext ) ) )
         {
             auto res = m_allocatedSlots.fetch_add( 1 );
             assert( res >= 0 && res + 1 <= m_totalSlots.load() );
@@ -189,7 +149,7 @@ struct MemPool
     {
         auto res = m_allocatedSlots.fetch_sub( 1 );
         assert( res > 0 && res <= m_totalSlots.load() );
-        ftl::PushSinglyListNode( &m_freeList.pNext, reinterpret_cast<SlotHeader<IsAtomic> *>( p ), &SlotHeader<IsAtomic>::pNext );
+        ftl::PushSinglyListNode( &m_freeList.pNext, reinterpret_cast<SlotHeader *>( p ), &SlotHeader::pNext );
     }
 
     std::size_t capacity() const
@@ -200,6 +160,40 @@ struct MemPool
     std::size_t free_size() const
     {
         return m_totalSlots.load() - m_allocatedSlots.load();
+    }
+
+protected:
+    // @return number of slots segregated. -1 for too small slot for slot header.
+    static int segregate_slab( ftl::Byte *slab,
+                               const SlabInfo &slabInfo,
+                               typename SlabHeader::NextElemPtrType &slatList,
+                               typename SlotHeader::NextElemPtrType &slotFreeList )
+    {
+        new ( slab ) SlabHeader( slabInfo.slabSize );
+        std::size_t k = 0;
+        for ( auto pSlot = slab + slabInfo.firstSlotOffset; k < slabInfo.slotCount; ++k, pSlot += slabInfo.slotSize )
+        {
+            ftl::PushSinglyListNode( &slotFreeList, reinterpret_cast<SlotHeader *>( pSlot ), &SlotHeader::pNext );
+        }
+        ftl::PushSinglyListNode( &slatList, reinterpret_cast<SlabHeader *>( slab ), &SlabHeader::pNext );
+        return slabInfo.slotCount;
+    }
+
+    static bool populateSlabInfo( SlabInfo &slabInfo, const AllocRequest &r, std::size_t slabHeaderSize )
+    {
+        assert( r.slotSize > 0 );
+        assert( r.minSlotsPerSlab > 0 );
+        if ( r.slotSize == 0 || r.minSlotsPerSlab == 0 )
+            return false;
+
+        slabInfo.firstSlotOffset = ftl::align_up( r.slabAlignment + slabHeaderSize, r.slotAlignment ) - r.slabAlignment;
+        slabInfo.slotSize = ftl::align_up( r.slotSize, r.slotAlignment );
+        slabInfo.slabSize = slabInfo.firstSlotOffset + slabInfo.slotSize * r.minSlotsPerSlab;
+        if ( r.alignupToSlabGranularity )
+            slabInfo.slabSize = ftl::align_up( slabInfo.slabSize, r.slabGranularity );
+
+        slabInfo.slotCount = ( slabInfo.slabSize - slabInfo.firstSlotOffset ) / slabInfo.slotSize;
+        return true;
     }
 };
 
