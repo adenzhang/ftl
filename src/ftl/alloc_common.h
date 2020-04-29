@@ -260,46 +260,56 @@ struct StaticFnDeleter
 ///    GrowthPolicy
 /////////////////////////////////////////////////////////////////////////////////
 
-struct DoubleAccumulatedGrowthPolicy
+// linear growth: y = coef * x. For std::vector coef == 2.
+struct LinearGrowthPolicy
 {
-    DoubleAccumulatedGrowthPolicy( size_t n ) : m_val( std::max( size_t( 1 ), n ) )
+    using size_type = std::size_t; // must be >= 0
+    LinearGrowthPolicy( size_type initialVal, double coef = 2.0 )
+        : m_val( std::max( size_type( 1 ), initialVal ) ),
+          m_coef( coef ),
+          m_bInc( coef > 1 ),
+          m_limit( ( m_bInc ? std::numeric_limits<size_type>::max() : std::numeric_limits<size_type>::min() ) )
+    {
+    }
+
+    LinearGrowthPolicy( size_type initialVal, double coef, size_type limit )
+        : m_val( std::max( size_type( 1 ), initialVal ) ), m_coef( coef ), m_bInc( coef > 1 ), m_limit( limit )
     {
     }
 
     /// @param toatalVal accumulative total value
-    size_t grow_to( size_t toatalVal )
+    size_type grow_to( size_type acculativeVal )
     {
-        return std::max( m_val, toatalVal * 2 );
+        if ( m_bInc )
+            return std::min( m_limit, std::max( m_val, size_type( acculativeVal * m_coef ) ) );
+        return std::max( m_limit, std::min( m_val, size_type( acculativeVal * m_coef ) ) );
     }
-    size_t &get_grow_value()
+    size_type &get_grow_value()
     {
         return m_val;
     }
 
 private:
-    size_t m_val; // current/recent grow value.
+    size_type m_val; // current/recent grow value.
+    double m_coef;
+    bool m_bInc;
+    size_type m_limit; // max/min value of m_val.
 };
 
-struct DoublePrevGrowthPolicy : public DoubleAccumulatedGrowthPolicy
-{
-    DoublePrevGrowthPolicy( size_t n ) : DoubleAccumulatedGrowthPolicy( n )
-    {
-    }
-    size_t grow_to( size_t )
-    {
-        return ( get_grow_value() *= 2 );
-    }
-};
 
-struct ConstGrowthPolicy : public DoubleAccumulatedGrowthPolicy
+struct ConstGrowthPolicy
 {
-    ConstGrowthPolicy( size_t n ) : DoubleAccumulatedGrowthPolicy( n )
+    using size_type = std::size_t; // must be >= 0
+
+    ConstGrowthPolicy( size_type initialVal ) : m_val( initialVal )
     {
     }
-    size_t grow_to( size_t )
+    // always return initial value.
+    size_type grow_to( size_type )
     {
-        return get_grow_value();
+        return m_val;
     }
+    size_type m_val; // current/recent grow value.
 };
 
 /////////////////////////////////////////////////////////////////////////////////
