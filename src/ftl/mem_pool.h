@@ -71,7 +71,9 @@ protected:
     SlabHeader m_slabList;
 
     AllocRequest m_defaultAllocReq;
-    std::atomic<std::ptrdiff_t> m_totalSlots = 0, m_allocatedSlots = 0; // for tracking allocations.
+
+    using IntCounterType = std::conditional_t<IsAtomic, std::atomic<std::ptrdiff_t>, std::ptrdiff_t>;
+    IntCounterType m_totalSlots = 0, m_allocatedSlots = 0; // for tracking allocations.
 
     struct SlabInfo
     {
@@ -109,7 +111,7 @@ public:
         auto ret = segregate_slab( pSlab, slabInfo, m_slabList.pNext, m_freeList.pNext );
         assert( ret > 0 );
         if ( ret > 0 )
-            m_totalSlots.fetch_add( std::ptrdiff_t( ret ) );
+            m_totalSlots += std::ptrdiff_t( ret );
         return ret;
     }
 
@@ -137,8 +139,8 @@ public:
         }
         if ( ( p = ftl::PopSinglyListNode( &m_freeList.pNext, &SlotHeader::pNext ) ) )
         {
-            auto res = m_allocatedSlots.fetch_add( 1 );
-            assert( res >= 0 && res + 1 <= m_totalSlots.load() );
+            m_allocatedSlots += 1;
+            assert( m_allocatedSlots >= 0 && m_allocatedSlots <= m_totalSlots );
             return p;
         }
         return nullptr;
@@ -147,19 +149,19 @@ public:
     // free an allocated slot.
     void free( void *p )
     {
-        auto res = m_allocatedSlots.fetch_sub( 1 );
-        assert( res > 0 && res <= m_totalSlots.load() );
+        m_allocatedSlots -= 1;
+        assert( m_allocatedSlots >= 0 && m_allocatedSlots <= m_totalSlots );
         ftl::PushSinglyListNode( &m_freeList.pNext, reinterpret_cast<SlotHeader *>( p ), &SlotHeader::pNext );
     }
 
     std::size_t capacity() const
     {
-        return m_totalSlots.load();
+        return m_totalSlots;
     }
 
     std::size_t free_size() const
     {
-        return m_totalSlots.load() - m_allocatedSlots.load();
+        return m_totalSlots - m_allocatedSlots;
     }
 
 protected:
