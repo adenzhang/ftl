@@ -69,7 +69,51 @@ T *PopSinglyListNode( T **head, T *T::*pMemberNext )
     }
     return nullptr;
 }
+//------- static pMemberNext, more efficient --------------
+template<typename T, std::atomic<T *> T::*pMemberNext>
+void PushSinglyListNode( std::atomic<T *> *head, T *node )
+{
+    T *pHead = nullptr;
+    do
+    {
+        pHead = head->load();
+        node->*pMemberNext = pHead;
+    } while ( !head->compare_exchange_weak( pHead, node ) );
+}
 
+template<typename T, std::atomic<T *> T::*pMemberNext>
+T *PopSinglyListNode( std::atomic<T *> *head )
+{
+    auto pHead = head->load();
+    T *pNext = nullptr;
+    do
+    {
+        if ( !pHead )
+            break;
+        pNext = ( pHead->*pMemberNext ).load();
+    } while ( !head->compare_exchange_weak( pHead, pNext ) );
+    return pHead;
+}
+
+// non-atomic push singly list node
+template<typename T, T *T::*pMemberNext>
+void PushSinglyListNode( T **head, T *node )
+{
+    node->*pMemberNext = *head;
+    *head = node;
+}
+
+template<typename T, T *T::*pMemberNext>
+T *PopSinglyListNode( T **head )
+{
+    if ( *head )
+    {
+        T *top = *head;
+        *head = top->*pMemberNext;
+        return top;
+    }
+    return nullptr;
+}
 
 /////////////////////////////////////////////////////////////////////////////////
 ///    FreeList, AtomicFreeList

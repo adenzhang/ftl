@@ -35,15 +35,25 @@ struct AllocRequest
     std::size_t slabAlignment = 8; // which is also the SlabHeader alignment.
     std::size_t slabGranularity = 4096; // page size.
     bool alignupToSlabGranularity = false; // if true, may pre-allocate more slots than requested.
+    std::size_t maxSlotsPerSlab = 0; // applicable only if ConstGrowthStrategy is not true.
 };
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// \brief MemPool preallocates slots. User calls MemPool::malloc() to allocate a slot.
 /// Multiple slots are allocated in a slab. Multiple slabs are linked into a list.
-/// The Memory pool is thread-safe only if IsAtomic.
-template<bool IsAtomic>
+/// \tparam IsAtomic if true, The Memory pool is thread-safe.
+/// \tparam ConstGrowthStrategy if false, count of slots in each new slab is double of previous value. Otherwise, always allocate the same size of
+/// slab.
+template<bool IsAtomic, bool ConstGrowthStrategy = true>
 class MemPool
 {
 protected:
+    struct SlabInfo
+    {
+        using size_type = unsigned;
+        unsigned slabSize, firstSlotOffset, slotSize, slotCount;
+    };
+
     // slabs are linked into list. Each slab contains multiple slots which are can allocated by calling MemPool::malloc().
     // slab 0: |SlabHeader|..|slot 1|slot 2|....|
     //            |
@@ -53,10 +63,10 @@ protected:
     {
         using NextElemPtrType = std::conditional_t<IsAtomic, std::atomic<SlabHeader *>, SlabHeader *>;
         NextElemPtrType pNext{};
-        std::size_t m_slabSize = 0;
+        SlabInfo info;
 
         SlabHeader() = default;
-        SlabHeader( std::size_t n ) : m_slabSize( n )
+        SlabHeader( const SlabInfo &info ) : info( info )
         {
         }
     };
@@ -75,10 +85,6 @@ protected:
     using IntCounterType = std::conditional_t<IsAtomic, std::atomic<std::ptrdiff_t>, std::ptrdiff_t>;
     IntCounterType m_totalSlots = 0, m_allocatedSlots = 0; // for tracking allocations.
 
-    struct SlabInfo
-    {
-        std::size_t slabSize, firstSlotOffset, slotSize, slotCount;
-    };
 
 public:
     MemPool() = default;
@@ -105,7 +111,7 @@ public:
         if ( !populateSlabInfo( slabInfo, r, sizeof( SlabHeader ) ) )
             return -1;
 
-        auto pSlab = ftl::sys_aligned_reserve_and_commit( slabInfo.slabSize, r.slabAlignment, r.slabGranularity );
+        auto pSlab = ftl::sys_aligned_reserve_and_commit( slabInfo.slabSize, r.slabAlignment, r.slabGranularity ); // may use std::aligned_allocate
         if ( !pSlab ) // failed allocatation.
             return -1;
         auto ret = segregate_slab( pSlab, slabInfo, m_slabList.pNext, m_freeList.pNext );
@@ -117,27 +123,38 @@ public:
 
     ~MemPool()
     {
-        assert( free_size() == capacity() );
-        while ( auto p = ftl::PopSinglyListNode( &m_slabList.pNext, &SlabHeader::pNext ) )
+        //        assert( free_size() == capacity() );
+        while ( auto p = ftl::PopSinglyListNode<SlabHeader, &SlabHeader::pNext>( &m_slabList.pNext ) )
         {
-            ftl::sys_release( p, p->m_slabSize );
+            ftl::sys_release( p, p->info.slabSize );
         }
     }
 
-    // allocate a slot.
+    bool inited() const
+    {
+        return m_defaultAllocReq.slotSize;
+    }
+
+    /// \brief allocate a slot.
+    /// \pre inited() successfully.
     void *malloc()
     {
-        auto p = ftl::PopSinglyListNode( &m_freeList.pNext, &SlotHeader::pNext );
+        assert( inited() );
+        auto p = ftl::PopSinglyListNode<SlotHeader, &SlotHeader::pNext>( &m_freeList.pNext );
         if ( !p )
         {
-            assert( m_defaultAllocReq.slotSize );
-            if ( !m_defaultAllocReq.slotSize )
-                return nullptr;
-
-            // slow path
+            // slow path, auto allocate a slab
+            if constexpr ( !ConstGrowthStrategy )
+            {
+                /// \note not thread safe
+                m_defaultAllocReq.minSlotsPerSlab = m_totalSlots * 2;
+                if ( m_defaultAllocReq.maxSlotsPerSlab && m_defaultAllocReq.minSlotsPerSlab > m_defaultAllocReq.maxSlotsPerSlab )
+                    m_defaultAllocReq.minSlotsPerSlab = m_defaultAllocReq.maxSlotsPerSlab;
+            }
             allocate_slab( m_defaultAllocReq );
+            p = ftl::PopSinglyListNode<SlotHeader, &SlotHeader::pNext>( &m_freeList.pNext );
         }
-        if ( ( p = ftl::PopSinglyListNode( &m_freeList.pNext, &SlotHeader::pNext ) ) )
+        if ( p )
         {
             m_allocatedSlots += 1;
             assert( m_allocatedSlots >= 0 && m_allocatedSlots <= m_totalSlots );
@@ -146,12 +163,12 @@ public:
         return nullptr;
     }
 
-    // free an allocated slot.
+    /// \brief free an allocated slot.
     void free( void *p )
     {
         m_allocatedSlots -= 1;
         assert( m_allocatedSlots >= 0 && m_allocatedSlots <= m_totalSlots );
-        ftl::PushSinglyListNode( &m_freeList.pNext, reinterpret_cast<SlotHeader *>( p ), &SlotHeader::pNext );
+        ftl::PushSinglyListNode<SlotHeader, &SlotHeader::pNext>( &m_freeList.pNext, reinterpret_cast<SlotHeader *>( p ) );
     }
 
     std::size_t capacity() const
@@ -164,6 +181,21 @@ public:
         return m_totalSlots - m_allocatedSlots;
     }
 
+    void clear()
+    {
+        new ( &m_freeList ) SlotHeader();
+        while ( auto pSlabHeader = ftl::PopSinglyListNode<SlabHeader, &SlabHeader::pNext>( &m_slabList.pNext ) )
+        {
+            std::size_t k = 0;
+            for ( Byte *pSlot = reinterpret_cast<Byte *>( pSlabHeader ) + pSlabHeader->info.firstSlotOffset; k < pSlabHeader->info.slotCount;
+                  ++k, pSlot += pSlabHeader->info.slotSize )
+            {
+                ftl::PushSinglyListNode<SlotHeader, &SlotHeader::pNext>( &m_freeList.pNext, reinterpret_cast<SlotHeader *>( pSlot ) );
+            }
+        }
+        m_allocatedSlots = 0;
+    }
+
 protected:
     // @return number of slots segregated. -1 for too small slot for slot header.
     static int segregate_slab( ftl::Byte *slab,
@@ -171,13 +203,13 @@ protected:
                                typename SlabHeader::NextElemPtrType &slatList,
                                typename SlotHeader::NextElemPtrType &slotFreeList )
     {
-        new ( slab ) SlabHeader( slabInfo.slabSize );
+        new ( slab ) SlabHeader( slabInfo );
         std::size_t k = 0;
         for ( auto pSlot = slab + slabInfo.firstSlotOffset; k < slabInfo.slotCount; ++k, pSlot += slabInfo.slotSize )
         {
-            ftl::PushSinglyListNode( &slotFreeList, reinterpret_cast<SlotHeader *>( pSlot ), &SlotHeader::pNext );
+            ftl::PushSinglyListNode<SlotHeader, &SlotHeader::pNext>( &slotFreeList, reinterpret_cast<SlotHeader *>( pSlot ) );
         }
-        ftl::PushSinglyListNode( &slatList, reinterpret_cast<SlabHeader *>( slab ), &SlabHeader::pNext );
+        ftl::PushSinglyListNode<SlabHeader, &SlabHeader::pNext>( &slatList, reinterpret_cast<SlabHeader *>( slab ) );
         return slabInfo.slotCount;
     }
 
@@ -192,10 +224,121 @@ protected:
         slabInfo.slotSize = ftl::align_up( r.slotSize, r.slotAlignment );
         slabInfo.slabSize = slabInfo.firstSlotOffset + slabInfo.slotSize * r.minSlotsPerSlab;
         if ( r.alignupToSlabGranularity )
-            slabInfo.slabSize = ftl::align_up( slabInfo.slabSize, r.slabGranularity );
+            slabInfo.slabSize = ftl::align_up( slabInfo.slabSize, typename SlabInfo::size_type( r.slabGranularity ) );
 
         slabInfo.slotCount = ( slabInfo.slabSize - slabInfo.firstSlotOffset ) / slabInfo.slotSize;
         return true;
+    }
+};
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/// \brief TypedPool object pool.
+template<class T, std::size_t Alignment = sizeof( T ), bool MultiThreaded = true, bool ConstGrowthStrategy = true>
+class TypedPool
+{
+protected:
+    MemPool<MultiThreaded, ConstGrowthStrategy> m_memPool;
+
+public:
+    struct Deleter
+    {
+        TypedPool &alloc;
+        Deleter( TypedPool &a ) : alloc( a )
+        {
+        }
+
+        void operator()( T *p )
+        {
+            if ( p )
+            {
+                p->~T();
+                alloc.deallocate( p );
+            }
+        }
+    };
+
+    struct Allocator
+    {
+        using value_type = T;
+        TypedPool &alloc;
+        Allocator( TypedPool &a ) : alloc( a )
+        {
+        }
+        T *allocate( size_t = 1 )
+        {
+            return alloc.allocate();
+        }
+        void deallocate( T *p, size_t = 1 )
+        {
+            alloc.deallocate( p, 1 );
+        }
+        void clear()
+        {
+            alloc.clear();
+        }
+    };
+
+public:
+    TypedPool() = default;
+    TypedPool( std::size_t initialReserve ) : m_memPool( AllocRequest{sizeof( T ), initialReserve, Alignment} )
+    {
+    }
+    bool init( std::size_t initialReserve )
+    {
+        return m_memPool.init( AllocRequest{sizeof( T ), initialReserve, Alignment} ) > 0;
+    }
+
+    T *allocate( size_t = 1 )
+    {
+        return reinterpret_cast<T *>( m_memPool.malloc() );
+    }
+    void deallocate( T *p, size_t = 1 )
+    {
+        m_memPool.free( p );
+    }
+
+    template<class... Args>
+    T *create( Args &&... args )
+    {
+        auto pNode = allocate();
+        if ( pNode )
+            new ( pNode ) T( std::forward<Args...>( args )... );
+        return pNode;
+    }
+
+    template<class... Args>
+    std::unique_ptr<T, Deleter> create_unique( Args &&... args )
+    {
+        return std::unique_ptr<T, Deleter>( create( std::forward<Args>( args )... ), to_deleter() );
+    }
+
+    void destroy( T *pObj )
+    {
+        if ( !pObj )
+            return;
+        pObj->~T();
+        deallocate( pObj );
+    }
+    void clear()
+    {
+        m_memPool.clear();
+    }
+
+    size_t allocated_size() const
+    {
+        return m_memPool.capacity() - m_memPool.free_size();
+    }
+    size_t free_size() const
+    {
+        return m_memPool.free_size();
+    }
+    Deleter to_deleter() const
+    {
+        return Deleter( *this );
+    }
+    Allocator to_allocator() const
+    {
+        return Allocator( *this );
     }
 };
 

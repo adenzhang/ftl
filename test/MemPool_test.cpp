@@ -16,5 +16,25 @@ ADD_TEST_CASE( MemPool_tests )
         REQUIRE_EQ( pool.free_size(), 499 );
         pool.free( p );
         REQUIRE_EQ( pool.free_size(), 500 );
+        pool.clear();
+    }
+
+    SECTION( "auto_alloc_slab" )
+    {
+        const std::size_t cap = 2;
+        std::vector<void *> slots( cap );
+        MemPool<false> pool( AllocRequest{100, cap} );
+        REQUIRE_EQ( pool.capacity(), cap );
+
+        for ( auto &pslot : slots )
+        {
+            pslot = pool.malloc();
+            REQUIRE( pslot );
+        }
+        REQUIRE_EQ( 0, pool.free_size() );
+        auto p = pool.malloc();
+        REQUIRE( p );
+        REQUIRE_EQ( pool.capacity(), 2 * cap );
+        pool.clear();
     }
 }
