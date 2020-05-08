@@ -200,10 +200,10 @@ SimpleLogger *GetSimpleLogger( const std::string &name, std::ostream &os = std::
 }
 } // namespace ftl
 
-#define GET_LOGGER( name ) GetSimpleLogger( name )
+#define GET_LOGGER( name ) ftl::GetSimpleLogger( name )
 
 #define LOG_LEVEL( LEVEL, logger, expr )                                                                                                            \
-    logger->os << SimpleLogger::get_timestr() << " [" #LEVEL "] " << logger->name << " : " << expr << std::endl << std::flush
+    logger->os << ftl::SimpleLogger::get_timestr() << " [" #LEVEL "] " << logger->name << " : " << expr << std::endl << std::flush
 #define LOG_T( logger, expr ) LOG_LEVEL( TRACE, logger, expr )
 #define LOG_D( logger, expr ) LOG_LEVEL( DEBUG, logger, expr )
 #define LOG_I( logger, expr ) LOG_LEVEL( INFO, logger, expr )
@@ -211,8 +211,8 @@ SimpleLogger *GetSimpleLogger( const std::string &name, std::ostream &os = std::
 #define LOG_E( logger, expr ) LOG_LEVEL( ERROR, logger, expr )
 
 #define FMT_LEVEL( LEVEL, logger, ... )                                                                                                             \
-    logger->os << SimpleLogger::get_timestr() << " [" #LEVEL "] " << logger->name << " : ";                                                         \
-    format( logger->os, __VA_ARGS__ );                                                                                                              \
+    logger->os << ftl::SimpleLogger::get_timestr() << " [" #LEVEL "] " << logger->name << " : ";                                                    \
+    ftl::format( logger->os, __VA_ARGS__ );                                                                                                         \
     logger->os << std::endl
 #define FMT_T( logger, ... ) FMT_LEVEL( TRACE, logger, __VA_ARGS__ )
 #define FMT_D( logger, ... ) FMT_LEVEL( DEBUG, logger, __VA_ARGS__ )
@@ -221,8 +221,8 @@ SimpleLogger *GetSimpleLogger( const std::string &name, std::ostream &os = std::
 #define FMT_E( logger, ... ) FMT_LEVEL( ERROR, logger, __VA_ARGS__ )
 
 #define CAT_LEVEL( LEVEL, logger, ... )                                                                                                             \
-    logger->os << SimpleLogger::get_timestr() << " [" #LEVEL "] " << logger->name << " : ";                                                         \
-    cat( logger->os, __VA_ARGS__ );                                                                                                                 \
+    logger->os << ftl::SimpleLogger::get_timestr() << " [" #LEVEL "] " << logger->name << " : ";                                                    \
+    ftl::cat( logger->os, __VA_ARGS__ );                                                                                                            \
     logger->os << std::endl
 #define CAT_T( logger, ... ) CAT_LEVEL( TRACE, logger, __VA_ARGS__ )
 #define CAT_D( logger, ... ) CAT_LEVEL( DEBUG, logger, __VA_ARGS__ )

@@ -815,8 +815,8 @@ namespace type_erasure
 } // namespace type_erasure
 
 template<class Signature, std::size_t N, bool bCopyConstructible = true, bool bMoveConstructible = true>
-using FixedFunction = typename type_erasure::Erasure<N, Signature, false, bCopyConstructible, bMoveConstructible>;
+using InplaceFunction = typename type_erasure::Erasure<N, Signature, false, bCopyConstructible, bMoveConstructible>;
 template<class Signature, std::size_t N, bool bCopyConstructible = true, bool bMoveConstructible = true>
-using MutableFixedFunction = typename type_erasure::Erasure<N, Signature, true, bCopyConstructible, bMoveConstructible>;
+using MutableInplaceFunction = typename type_erasure::Erasure<N, Signature, true, bCopyConstructible, bMoveConstructible>;
 
 } // namespace ftl

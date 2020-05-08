@@ -22,9 +22,9 @@
 namespace ftl
 {
 
-// todo: cache line optimization
+// todo: cache line optimization, alignment
 template<class T, class AllocT = std::allocator<T>>
-class SPMCQueue
+class SPMCBoundedQueue
 {
     struct Node
     {
@@ -33,14 +33,16 @@ class SPMCQueue
     };
 
 public:
+    constexpr static bool support_multiple_producer_threads = false, support_multiple_consumer_threads = true;
     using Alloc = typename std::allocator_traits<AllocT>::template rebind_alloc<Node>;
 
-    SPMCQueue( size_t nCap, const Alloc &alloc = Alloc() ) : m_alloc( alloc ), m_data( m_alloc.allocate( nCap + 1 ) ), m_bufsize( nCap + 1 )
+    SPMCBoundedQueue( size_t nCap = 0, const Alloc &alloc = Alloc() ) : m_alloc( alloc )
     {
-        for ( size_t i = 0; i < m_bufsize; ++i )
-            m_data[i].flag.store( false );
+        if ( nCap )
+            init( nCap );
     }
-    ~SPMCQueue()
+
+    ~SPMCBoundedQueue()
     {
         if ( m_data )
         {
@@ -50,19 +52,34 @@ public:
         }
     }
 
+    bool init( size_t nCap )
+    {
+        m_data = m_alloc.allocate( nCap + 1 );
+        m_bufsize = nCap + 1;
+        for ( size_t i = 0; i < m_bufsize; ++i )
+            m_data[i].flag.store( false );
+        return m_data;
+    }
+
     /// @return false when full. Note: the front element mayb be in process of dequeue.
-    bool push( const T &val )
+    template<class... Args>
+    bool emplate( Args &&... args )
     {
         auto iEnd = m_end.load( std::memory_order_acquire ) % m_bufsize;
         auto iNext = ( iEnd + 1 ) % m_bufsize;
         if ( m_data[iNext].flag.load( std::memory_order_acquire ) ) // full
             return false;
         assert( m_data[iEnd].flag.load( std::memory_order_acquire ) == false );
-        new ( &m_data[iEnd].val ) T( val );
+        new ( &m_data[iEnd].val ) T( std::forward<Args>( args )... );
         assert( !m_data[iEnd].flag );
         m_data[iEnd].flag.store( true, std::memory_order_release );
         m_end.fetch_add( 1 );
         return true;
+    }
+
+    bool push( const T &val )
+    {
+        return emplace( val );
     }
 
     bool pop( T *val )
@@ -102,16 +119,6 @@ public:
         return m_begin.load() + ( m_bufsize - 1 ) == m_end.load();
     }
 
-    void stop()
-    {
-        m_stopping = true;
-    }
-
-    bool stopping() const
-    {
-        return m_stopping;
-    }
-
     void clear()
     {
         while ( pop( nullptr ) )
@@ -123,6 +130,6 @@ protected:
     Node *m_data = nullptr;
     size_t m_bufsize = 0;
     std::atomic<size_t> m_begin{0}, m_end{0};
-    std::atomic<bool> m_stopping{false};
 };
+
 } // namespace ftl

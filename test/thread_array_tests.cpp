@@ -11,7 +11,7 @@ ADD_TEST_CASE( test_thread_array )
     using MyThreadArray = ftl::ThreadArray<Task, MPSCQue>;
 
     const size_t N = 4;
-    MyThreadArray ta( N, MPSCQue{3} );
+    MyThreadArray ta( N, 3 );
     for ( size_t i = 0; i < 10; ++i )
     {
         for ( unsigned j = 0; j < N; ++j )

@@ -75,28 +75,44 @@ inline bool sys_unlock( const Byte *p, std::size_t uiLen )
     return 0 == munlock( p, uiLen );
 }
 
-inline Byte *sys_aligned_reserve_and_commit( std::size_t uiLen, std::size_t uiAlignment, std::size_t uiGranularity, bool populatePageTable = true )
+struct MmapAlignedAlloc
 {
-    assert( is_pow2( uiAlignment ) );
-
-    int iFlags = MAP_ANONYMOUS | MAP_PRIVATE;
-    //    if ( pageType == PageType::Huge )
-    //    {
-    //        iFlags |= MAP_HUGETLB;
-    //    }
-
-    if ( populatePageTable )
+    static void *aligned_alloc( std::size_t uiAlignment, std::size_t uiLen, std::size_t uiGranularity = 4096, bool populatePageTable = true )
     {
-        iFlags |= MAP_POPULATE;
+        assert( is_pow2( uiAlignment ) );
+
+        int iFlags = MAP_ANONYMOUS | MAP_PRIVATE;
+        //    if ( pageType == PageType::Huge )
+        //    {
+        //        iFlags |= MAP_HUGETLB;
+        //    }
+
+        if ( populatePageTable )
+        {
+            iFlags |= MAP_POPULATE;
+        }
+
+        return internal::mmap_aligned_impl( uiLen, uiAlignment, uiGranularity, PROT_READ | PROT_WRITE, iFlags );
     }
 
-    return internal::mmap_aligned_impl( uiLen, uiAlignment, uiGranularity, PROT_READ | PROT_WRITE, iFlags );
-}
+    static bool free( void *p, std::size_t uiLen )
+    {
+        return 0 == munmap( p, uiLen );
+    }
+};
 
-inline bool sys_release( void *p, std::size_t uiLen )
+struct StdAlignedAlloc
 {
-    return 0 == munmap( p, uiLen );
-}
+    static void *aligned_alloc( std::size_t uiAlignment, std::size_t uiLen, std::size_t = 4096, bool = true )
+    {
+        return std::aligned_alloc( uiAlignment, uiLen );
+    }
+    static bool free( void *p, std::size_t len = 0 )
+    {
+        std::free( p );
+        return true;
+    }
+};
 
 
 } // namespace ftl

@@ -30,7 +30,7 @@ struct AllocRequest
     std::size_t slotSize = 0;
     std::size_t minSlotsPerSlab;
 
-    std::size_t slotAlignment = 128; // default: 2 cache line size, avoiding false sharing.
+    std::size_t slotAlignment = 0; // default: 0， use slotSize.
 
     std::size_t slabAlignment = 8; // which is also the SlabHeader alignment.
     std::size_t slabGranularity = 4096; // page size.
@@ -44,7 +44,7 @@ struct AllocRequest
 /// \tparam IsAtomic if true, The Memory pool is thread-safe.
 /// \tparam ConstGrowthStrategy if false, count of slots in each new slab is double of previous value. Otherwise, always allocate the same size of
 /// slab.
-template<bool IsAtomic, bool ConstGrowthStrategy = true>
+template<bool IsAtomic, bool ConstGrowthStrategy = true, class AlignedAlloc = MmapAlignedAlloc>
 class MemPool
 {
 protected:
@@ -97,6 +97,18 @@ public:
         init( ar );
     }
 
+    MemPool( MemPool &&another )
+    {
+        m_freeList = another.m_freeList;
+        m_slabList = another.m_slabList;
+        m_defaultAllocReq = another.m_defaultAllocReq;
+        m_totalSlots = another.m_totalSlots;
+        m_allocatedSlots = another.m_allocatedSlots;
+
+        another.m_freeList.pNext = nullptr;
+        another.m_slabList.pNext = nullptr;
+    }
+
     int init( const AllocRequest &ar )
     {
         m_defaultAllocReq = ar;
@@ -111,10 +123,10 @@ public:
         if ( !populateSlabInfo( slabInfo, r, sizeof( SlabHeader ) ) )
             return -1;
 
-        auto pSlab = ftl::sys_aligned_reserve_and_commit( slabInfo.slabSize, r.slabAlignment, r.slabGranularity ); // may use std::aligned_allocate
+        auto pSlab = AlignedAlloc::aligned_alloc( slabInfo.slabSize, r.slabAlignment, r.slabGranularity ); // may use std::aligned_allocate
         if ( !pSlab ) // failed allocatation.
             return -1;
-        auto ret = segregate_slab( pSlab, slabInfo, m_slabList.pNext, m_freeList.pNext );
+        auto ret = segregate_slab( static_cast<Byte *>( pSlab ), slabInfo, m_slabList.pNext, m_freeList.pNext );
         assert( ret > 0 );
         if ( ret > 0 )
             m_totalSlots += std::ptrdiff_t( ret );
@@ -126,7 +138,7 @@ public:
         //        assert( free_size() == capacity() );
         while ( auto p = ftl::PopSinglyListNode<SlabHeader, &SlabHeader::pNext>( &m_slabList.pNext ) )
         {
-            ftl::sys_release( p, p->info.slabSize );
+            AlignedAlloc::free( p, p->info.slabSize );
         }
     }
 
@@ -220,7 +232,8 @@ protected:
         if ( r.slotSize == 0 || r.minSlotsPerSlab == 0 )
             return false;
 
-        slabInfo.firstSlotOffset = ftl::align_up( r.slabAlignment + slabHeaderSize, r.slotAlignment ) - r.slabAlignment;
+        slabInfo.firstSlotOffset =
+                ftl::align_up( r.slabAlignment + slabHeaderSize, r.slotAlignment ? r.slotAlignment : r.slotSize ) - r.slabAlignment;
         slabInfo.slotSize = ftl::align_up( r.slotSize, r.slotAlignment );
         slabInfo.slabSize = slabInfo.firstSlotOffset + slabInfo.slotSize * r.minSlotsPerSlab;
         if ( r.alignupToSlabGranularity )
@@ -231,19 +244,38 @@ protected:
     }
 };
 
+struct DisableEnableSharedFromThis
+{
+};
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// \brief TypedPool object pool.
-template<class T, std::size_t Alignment = sizeof( T ), bool MultiThreaded = true, bool ConstGrowthStrategy = true>
-class TypedPool
+/// \tparam MultiThreaded indicates whether it is used in multiple threads.
+/// \tparam ConstGrowthStrategy whether is the allocation is constanct growth.
+/// \tparam EnableFromThisBase if it's std::enable_shared_from_this, ObjectPool is referenced by managed objects. it avoids pool destruction before
+/// managed objects deletion.
+template<class T,
+         std::size_t Alignment = sizeof( T ),
+         bool MultiThreaded = true,
+         bool ConstGrowthStrategy = true,
+         class EnableFromThisBase = DisableEnableSharedFromThis>
+class ObjectPool : EnableFromThisBase
 {
 protected:
     MemPool<MultiThreaded, ConstGrowthStrategy> m_memPool;
 
 public:
-    struct Deleter
+    using base_type = EnableFromThisBase;
+    constexpr static bool is_shared_from_this = !std::is_same_v<EnableFromThisBase, DisableEnableSharedFromThis>;
+
+    using PoolPtr = std::conditional_t<is_shared_from_this, std::shared_ptr<ObjectPool>, ObjectPool *>;
+
+    class Deleter
     {
-        TypedPool &alloc;
-        Deleter( TypedPool &a ) : alloc( a )
+        PoolPtr alloc;
+
+    public:
+        Deleter( ObjectPool &a ) : alloc( a.get_ptr() )
         {
         }
 
@@ -251,36 +283,39 @@ public:
         {
             if ( p )
             {
-                p->~T();
-                alloc.deallocate( p );
+                alloc->destroy( p );
             }
         }
     };
 
-    struct Allocator
+    class AllocatorRef
     {
         using value_type = T;
-        TypedPool &alloc;
-        Allocator( TypedPool &a ) : alloc( a )
+        PoolPtr alloc;
+
+    public:
+        AllocatorRef( ObjectPool &a ) : alloc( a.get_ptr() )
         {
         }
         T *allocate( size_t = 1 )
         {
-            return alloc.allocate();
+            return alloc->allocate();
         }
         void deallocate( T *p, size_t = 1 )
         {
-            alloc.deallocate( p, 1 );
+            alloc->deallocate( p, 1 );
         }
         void clear()
         {
-            alloc.clear();
+            alloc->clear();
         }
     };
 
 public:
-    TypedPool() = default;
-    TypedPool( std::size_t initialReserve ) : m_memPool( AllocRequest{sizeof( T ), initialReserve, Alignment} )
+    // If pool is is_shared_from_this, use std::allocate_shared or std::make_shared to create pool.
+    ObjectPool() = default;
+    ObjectPool( ObjectPool && ) = default;
+    ObjectPool( std::size_t initialReserve ) : m_memPool( AllocRequest{sizeof( T ), initialReserve, Alignment} )
     {
     }
     bool init( std::size_t initialReserve )
@@ -288,15 +323,27 @@ public:
         return m_memPool.init( AllocRequest{sizeof( T ), initialReserve, Alignment} ) > 0;
     }
 
+    PoolPtr get_ptr()
+    {
+        if constexpr ( is_shared_from_this )
+            return base_type::shared_from_this();
+        else
+            return this;
+    }
+
+    // If pool is is_shared_from_this, call this will change refcount.
     T *allocate( size_t = 1 )
     {
         return reinterpret_cast<T *>( m_memPool.malloc() );
     }
+
+    // If pool is is_shared_from_this, call this will change refcount.
     void deallocate( T *p, size_t = 1 )
     {
         m_memPool.free( p );
     }
 
+    // If pool is is_shared_from_this, call this will change refcount.
     template<class... Args>
     T *create( Args &&... args )
     {
@@ -312,6 +359,13 @@ public:
         return std::unique_ptr<T, Deleter>( create( std::forward<Args>( args )... ), to_deleter() );
     }
 
+    template<class... Args>
+    std::shared_ptr<T> create_shared( Args &&... args )
+    {
+        return std::shared_ptr<T>( create( std::forward<Args>( args )... ), to_deleter() );
+    }
+
+    // If pool is is_shared_from_this, call this will change refcount.
     void destroy( T *pObj )
     {
         if ( !pObj )
@@ -336,7 +390,7 @@ public:
     {
         return Deleter( *this );
     }
-    Allocator to_allocator() const
+    AllocatorRef to_allocator() const
     {
         return Allocator( *this );
     }

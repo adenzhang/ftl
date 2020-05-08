@@ -26,17 +26,22 @@ namespace ftl
 {
 
 // MPSC lock free bounded array queue
-// todo: cache line optimization
-template<class T, class Alloc = std::allocator<T>, size_t Align = 64>
+// todo: cache line optimization, alignment
+template<class T, class Alloc = std::allocator<T>>
 class MPSCBoundedQueue
 {
 public:
+    constexpr static bool support_multiple_producer_threads = true, support_multiple_consumer_threads = false;
+
     using size_type = ptrdiff_t; // signed
     using seq_type = std::atomic<size_type>;
     struct Entry
     {
-        typename std::aligned_storage<sizeof( seq_type ), Align>::type mSeq;
-        typename std::aligned_storage<sizeof( T ), Align>::type mData;
+        //        typename std::aligned_storage<sizeof( seq_type ), Align>::type mSeq;
+        //        typename std::aligned_storage<sizeof( T ), Align>::type mData;
+
+        seq_type mSeq;
+        T mData;
 
         seq_type &seq()
         {
@@ -60,14 +65,10 @@ protected:
 public:
     using value_type = T;
 
-    MPSCBoundedQueue( size_t cap = 0, allocator_type &&alloc = allocator_type() ) : mAlloc( std::move( alloc ) ), mCap( cap )
+    MPSCBoundedQueue( size_t cap = 0, const allocator_type &alloc = allocator_type{} ) : mAlloc( alloc )
     {
-        init( cap );
-    }
-
-    MPSCBoundedQueue( size_t cap, const allocator_type &alloc ) : mAlloc( alloc ), mCap( cap )
-    {
-        init( cap );
+        if ( cap )
+            init( cap );
     }
 
     ~MPSCBoundedQueue()
@@ -82,7 +83,7 @@ public:
         }
     }
 
-    // @brief Move Constructor: move memory if it's allocated. Otherwise, allocate new buffer.
+    /// @brief Move Constructor: move memory if it's allocated. Otherwise, allocate new buffer.
     MPSCBoundedQueue( MPSCBoundedQueue &&a )
         : mAlloc( std::move( a.mAlloc ) ), mCap( a.mCap ), mBuf( a.mBuf ), mPushPos( a.mPushPos.load() ), mPopPos( a.mPopPos.load() )
     {
@@ -91,7 +92,7 @@ public:
             init( mCap );
     }
 
-    // @brief Copy Constructor: alway allocate new buffer.
+    /// @brief Copy Constructor: alway allocate new buffer.
     MPSCBoundedQueue( const MPSCBoundedQueue &a ) : MPSCBoundedQueue( a.mCap, a.mAlloc )
     {
     }
@@ -127,7 +128,8 @@ public:
         return true;
     }
 
-    // @return false if it's full.
+    /// \brief emplace back.
+    /// \return false if it's full.
     template<class... Args>
     bool emplace( Args &&... args )
     {
@@ -154,19 +156,21 @@ public:
         }
     }
 
+    /// \brief push back
     bool push( const T &v )
     {
         return emplace( v );
     }
 
-    // @brief Call T(T&&) to construct object T.
-    // @return false if it's empty.
-    bool pop_back( T *buf = nullptr )
+    /// @brief Call T(T&&) to construct object T.
+    /// @return false if it's empty.
+    bool pop_front( T *buf = nullptr )
     {
         return pop( buf );
     }
 
-    // buf: uninitialized memory
+    /// \brief pop back.
+    /// buf: uninitialized memory
     bool pop( T *buf = nullptr )
     {
         auto poppos = mPopPos.load( std::memory_order_acquire );
@@ -223,6 +227,11 @@ public:
     bool full() const
     {
         return size() == mCap;
+    }
+    void clear()
+    {
+        while ( pop( nullptr ) )
+            ;
     }
 };
 } // namespace ftl

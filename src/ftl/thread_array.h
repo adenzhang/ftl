@@ -6,13 +6,40 @@
 
 namespace ftl
 {
-/// Task : std::invocable<task, size_t threadIdx, ThreadArray&>
+
+template<class Task>
+struct ThreadTaskClient
+{
+    std::size_t threadIdx = 0;
+
+    bool put_task( Task &&task ) const
+    {
+        return ( m_pPutTask )( m_ownerObj, threadIdx, std::move( task ) );
+    }
+
+    bool put_task( std::size_t idx, Task &&task ) const
+    {
+        return ( m_pPutTask )( m_ownerObj, idx, std::move( task ) );
+    }
+
+    std::size_t count_threads() const
+    {
+        return ( m_pCountThreads )( m_ownerObj );
+    }
+
+    void *m_ownerObj = nullptr;
+
+    bool ( *m_pPutTask )( void *obj, std::size_t, Task && );
+    std::size_t ( *m_pCountThreads )( void *obj );
+};
+
+/// Task : std::invocable<task, size_t threadIdx>
 /// TaskQ, MPSCLockFreeQueue<T> concept =
 ///    - bool push(const T&); // return false if Q is full
 ///    - bool emplace(Args&&... args);
 ///    - T *top(); // get top element, return nullptr if empty()
-///    - bool pop(T* pMem=nullptr);  // return false if empty. if pMem != nullptr, call  ::new (pMem) T(T&&) to construct object T. if pMem==nullptr,
-///    only pop.
+///    - bool pop(T* pMem=nullptr);  // return false if empty. if pMem != nullptr, call  ::new (pMem) T(T&&) to construct object T. if
+///    pMem==nullptr, only pop.
 ///    - size_t size() const;
 ///    - bool empty() const;
 ///---
@@ -21,6 +48,9 @@ template<class Task, class TaskQ, class ThreadData = void *, class SharedData = 
 class ThreadArray
 {
 public:
+    using task_type = Task;
+    using task_queue_type = TaskQ;
+
     using ThreadIndex = size_t;
     using this_type = ThreadArray;
     using IdleTask = std::function<void( ThreadIndex )>;
@@ -42,21 +72,25 @@ public:
 public:
     /// @brief if nThread == 0, thread will not be created.
     /// if nThread>0, call start(nThread)
-    ThreadArray( size_t nThread = 0, const TaskQ &taskQ = TaskQ{}, IdleTask &&idleTask = NoopTask{} ) : mIdleTask( std::move( idleTask ) )
+    ThreadArray( size_t nThread = 0, size_t nTaskQCapacity = 0, IdleTask &&idleTask = NoopTask{} ) : mIdleTask( std::move( idleTask ) )
     {
         mStatus = INIT;
         if ( nThread )
-            start( nThread, ThreadData{}, taskQ );
+            start( nThread, nTaskQCapacity, ThreadData{} );
     }
 
-    void start( size_t nThread, const ThreadData &tdata = ThreadData{}, const TaskQ &taskQ = TaskQ{} )
+    bool start( size_t nThread, size_t nTaskQCapacity, const ThreadData &tdata = ThreadData{} )
     {
+        if ( !nThread )
+            return true;
         mThreadInfo.clear();
         mThreadInfo.reserve( nThread );
         mStatus = WORKING;
         for ( size_t i = 0; i < nThread; ++i )
         {
-            auto &info = mThreadInfo.emplace_back( ThreadInfo{tdata, taskQ, std::thread{}} );
+            auto &info = mThreadInfo.emplace_back( ThreadInfo{tdata} );
+            if ( !info.taskQ.init( nTaskQCapacity ) )
+                return false;
             info.thread = std::thread( [this, me = this, threadIdx = i] {
                 mActiveThreads.fetch_add( 1 );
                 auto &taskQ = mThreadInfo[threadIdx].taskQ;
@@ -74,6 +108,7 @@ public:
                 mActiveThreads.fetch_sub( 1 );
             } );
         }
+        return true;
     }
 
     // @return true if stopped.
@@ -100,10 +135,11 @@ public:
     {
         return mThreadInfo.size() > threadIdx;
     }
+
     // @brief Put task onto thread queue.
-    bool put_task( ThreadIndex threadIdx, const Task &task )
+    bool put_task( ThreadIndex threadIdx, Task &&task )
     {
-        return mThreadInfo[threadIdx].taskQ.push( task );
+        return mThreadInfo[threadIdx].taskQ.push( std::move( task ) );
     }
 
     // @brief Put task onto thread queue.
@@ -127,6 +163,7 @@ public:
         return mSharedData;
     }
 
+    /// \brief thread count.
     size_t size() const
     {
         return mThreadInfo.size();
@@ -138,6 +175,11 @@ public:
     ThreadIndex end()
     {
         return mThreadInfo.size();
+    }
+
+    ThreadTaskClient<Task> get_task_client( std::size_t threadIdx ) const
+    {
+        return ThreadTaskClient<Task>{threadIdx, this, &this_type::PutTask, &this_type::size};
     }
 
 protected:
@@ -156,6 +198,12 @@ protected:
         TaskQ taskQ;
         std::thread thread;
     };
+
+
+    static bool PutTask( void *thisObj, std::size_t idx, Task &&task )
+    {
+        return reinterpret_cast<this_type *>( thisObj )->put_task( idx, std::move( task ) );
+    }
 
     IdleTask mIdleTask;
     std::vector<ThreadInfo> mThreadInfo;

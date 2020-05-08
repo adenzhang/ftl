@@ -1,6 +1,6 @@
 #include <ftl/unittest.h>
 
-#include <ftl/functional.h>
+#include <ftl/inplace_function.h>
 
 
 ADD_TEST_CASE( FixedFunction_tests )
@@ -26,14 +26,15 @@ ADD_TEST_CASE( FixedFunction_tests )
         }
     };
 
-    using Func = ftl::FixedFunction<bool( int ), 16, false, true>; // non-copy-constructible but move-constructible
-    using MutFunc = ftl::MutableFixedFunction<bool( int ), 16, false, true>;
+    using Func = ftl::InplaceFunction<bool( int ), 16, false, true>; // non-copy-constructible but move-constructible
+    using MutFunc = ftl::MutableInplaceFunction<bool( int ), 16, false, true>;
     int x = 0;
-    MutFunc f0 = [this, &x]( int inc ) mutable {
+    auto f0 = [this, &x]( int inc ) mutable {
         x += inc;
         std::cout << "test:" << x << std::endl;
         return true;
     };
+    MutFunc mutF0 = f0;
     Func f1;
     Func f2 = Functor();
     f1 = f2;

@@ -126,11 +126,16 @@ public:
     }
 
     template<class... Args>
-    void push( Args &&... args )
+    bool emplace( Args &&... args )
     {
         auto pNode = mAlloc.allocate( 1 );
         new ( &pNode->val ) T( std::forward<Args>( args )... );
         mQue.push( pNode );
+        return true;
+    }
+    bool push( const T &val )
+    {
+        return emplace( val );
     }
 
     size_t size() const

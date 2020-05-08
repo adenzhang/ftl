@@ -32,15 +32,16 @@ class SPSCRingQueue
     T *mBuf = nullptr;
     std::atomic<size_t> mPushPos = 0, mPopPos = 0;
 
+public:
+    constexpr static bool support_multiple_producer_threads = false, support_multiple_consumer_threads = false;
+
     SPSCRingQueue &operator=( const SPSCRingQueue & ) = delete;
 
 public:
-    SPSCRingQueue( size_t cap, AllocT &&alloc = AllocT() ) : mAlloc( std::move( alloc ) ), mCap( cap ), mBuf( mAlloc.allocate( cap ) )
+    SPSCRingQueue( size_t cap = 0, const AllocT &alloc = AllocT() ) : mAlloc( alloc )
     {
-    }
-
-    SPSCRingQueue( AllocT &&alloc = AllocT() ) : mAlloc( alloc )
-    {
+        if ( cap )
+            init( cap );
     }
 
     SPSCRingQueue( SPSCRingQueue &&a ) : mAlloc( a.mAlloc ), mCap( a.mCap ), mBuf( a.mBuf ), mPushPos( a.mPushPos ), mPopPos( a.mPopPos )
@@ -123,7 +124,7 @@ public:
     }
 
     template<class... Args>
-    T *push( Args &&... args )
+    T *emplace( Args &&... args )
     {
         if ( auto p = prepare_push() )
         {
@@ -132,6 +133,10 @@ public:
             return p;
         }
         return nullptr;
+    }
+    T *push( const T &val )
+    {
+        return emplace( val );
     }
 
     T *top() const
