@@ -7,17 +7,18 @@
 namespace ftl
 {
 
+/// \brief POD object ThreadTaskClient delegate some ThreadArray functions.
 template<class Task>
-struct ThreadTaskClient
+struct ThreadArrayDelegate
 {
     std::size_t threadIdx = 0;
 
-    bool put_task( Task &&task ) const
+    bool put_task( Task &&task )
     {
         return ( m_pPutTask )( m_ownerObj, threadIdx, std::move( task ) );
     }
 
-    bool put_task( std::size_t idx, Task &&task ) const
+    bool put_task( std::size_t idx, Task &&task )
     {
         return ( m_pPutTask )( m_ownerObj, idx, std::move( task ) );
     }
@@ -25,6 +26,11 @@ struct ThreadTaskClient
     std::size_t count_threads() const
     {
         return ( m_pCountThreads )( m_ownerObj );
+    }
+
+    operator bool() const
+    {
+        return m_ownerObj && m_pPutTask && m_pCountThreads; // all members must be set.
     }
 
     void *m_ownerObj = nullptr;
@@ -177,9 +183,9 @@ public:
         return mThreadInfo.size();
     }
 
-    ThreadTaskClient<Task> get_task_client( std::size_t threadIdx ) const
+    ThreadArrayDelegate<Task> get_thread_delegate( std::size_t threadIdx ) const
     {
-        return ThreadTaskClient<Task>{threadIdx, this, &this_type::PutTask, &this_type::size};
+        return ThreadArrayDelegate<Task>{threadIdx, this, &this_type::PutTask, &this_type::size};
     }
 
 protected:

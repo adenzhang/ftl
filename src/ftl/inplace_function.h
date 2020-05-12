@@ -584,6 +584,7 @@ namespace type_erasure
         }
     };
 
+    /// \tparam uiSize sizeof erasure. the acture size for functor is uiSize - sizeof(void*).
     template<std::size_t uiSize,
              class Signature,
              //             bool bUseDynamicAlloc,
@@ -598,8 +599,14 @@ namespace type_erasure
         //        using base_type = StoragePolicy<uiSize, false, bMutCallable, bCopyConstructible, bMoveConstructible>;
 
         // Needs to be declared here for use in decltype below
-        std::aligned_storage_t<uiSize> m_storage;
-        const TypeInfoExType *m_pInfoEx;
+        constexpr static std::size_t FunctorStorageSize = uiSize - sizeof (void*);
+        const TypeInfoExType *m_pInfoEx = nullptr;
+        char m_storage[FunctorStorageSize];
+
+        void *get_storage()
+        {
+            return m_storage;
+        }
 
     public:
         Erasure() : m_pInfoEx( nullptr )
@@ -790,7 +797,7 @@ namespace type_erasure
             static_assert( !bMoveConstructible || type_erasure::erasure_traits<T>::is_move_constructible, "T must be is_move_constructible" );
             static_assert( sizeof( T ) <= uiSize, "T is too large" );
 
-            ::new ( &m_storage ) T( std::forward<Args>( args )... );
+            ::new ( get_storage() ) T( std::forward<Args>( args )... );
             m_pInfoEx = &StaticCallableTypeInfo<T, Signature, bMutCallable>::value;
         }
 
@@ -801,7 +808,7 @@ namespace type_erasure
             static_assert( !bMoveConstructible || type_erasure::erasure_traits<T>::is_move_constructible, "T must be is_move_constructible" );
             static_assert( sizeof( T ) <= uiSize, "T is too large" );
 
-            ::new ( &m_storage ) T{std::forward<Args>( args )...};
+            ::new ( get_storage() ) T{std::forward<Args>( args )...};
             m_pInfoEx = &StaticCallableTypeInfo<T, Signature, bMutCallable>::value;
         }
 

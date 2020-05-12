@@ -27,7 +27,9 @@ ADD_TEST_CASE( FixedFunction_tests )
     };
 
     using Func = ftl::InplaceFunction<bool( int ), 16, false, true>; // non-copy-constructible but move-constructible
+    static_assert( sizeof( Func ) == 16, "Wrong size" );
     using MutFunc = ftl::MutableInplaceFunction<bool( int ), 16, false, true>;
+    static_assert( sizeof( MutFunc ) == 16, "Wrong size" );
     int x = 0;
     auto f0 = [this, &x]( int inc ) mutable {
         x += inc;
