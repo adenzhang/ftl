@@ -15,17 +15,17 @@ struct ThreadArrayDelegate
 
     bool put_task( Task &&task )
     {
-        return ( m_pPutTask )( m_ownerObj, threadIdx, std::move( task ) );
+        return ( *m_pPutTask )( m_ownerObj, threadIdx, std::move( task ) );
     }
 
     bool put_task( std::size_t idx, Task &&task )
     {
-        return ( m_pPutTask )( m_ownerObj, idx, std::move( task ) );
+        return ( *m_pPutTask )( m_ownerObj, idx, std::move( task ) );
     }
 
     std::size_t count_threads() const
     {
-        return ( m_pCountThreads )( m_ownerObj );
+        return ( *m_pCountThreads )( m_ownerObj );
     }
 
     operator bool() const
@@ -33,10 +33,31 @@ struct ThreadArrayDelegate
         return m_ownerObj && m_pPutTask && m_pCountThreads; // all members must be set.
     }
 
+    std::thread &get_thread( std::size_t threadIdx ) const
+    {
+        return ( *m_pGetThread )( m_ownerObj, threadIdx );
+    }
+
+    template<class ThreadData>
+    ThreadData &thread_data( std::size_t threadIdx )
+    {
+        return ( *m_pThreadData )( m_ownerObj, threadIdx );
+    }
+
+    template<class SharedData>
+    SharedData &shared_data()
+    {
+        return ( *m_pSharedData )( m_ownerObj, threadIdx );
+    }
+
     void *m_ownerObj = nullptr;
 
     bool ( *m_pPutTask )( void *obj, std::size_t, Task && );
     std::size_t ( *m_pCountThreads )( void *obj );
+
+    std::thread &( *m_pGetThread )( void *obj, std::size_t );
+    void *( *m_pThreadData )( void *obj, std::size_t );
+    void *( *m_pSharedData )( void *obj, std::size_t );
 };
 
 /// Task : std::invocable<task, size_t threadIdx>
@@ -155,7 +176,7 @@ public:
         return mThreadInfo[threadIdx].taskQ.emplace( std::forward<Args>( args )... );
     }
 
-    const std::thread &thread( ThreadIndex threadIdx ) const
+    const std::thread &get_thread( ThreadIndex threadIdx ) const
     {
         return mThreadInfo[threadIdx].thread;
     }
@@ -164,7 +185,7 @@ public:
         return mThreadInfo[threadIdx].data;
     }
 
-    ThreadData &shared_data()
+    SharedData &shared_data()
     {
         return mSharedData;
     }
@@ -185,7 +206,8 @@ public:
 
     ThreadArrayDelegate<Task> get_thread_delegate( std::size_t threadIdx ) const
     {
-        return ThreadArrayDelegate<Task>{threadIdx, this, &this_type::PutTask, &this_type::size};
+        return ThreadArrayDelegate<Task>{
+                threadIdx, this, &this_type::PutTask, &this_type::size, &this_type::get_thread, &this_type::thread_data, &this_type::shared_data};
     }
 
 protected:

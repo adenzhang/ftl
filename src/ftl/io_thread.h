@@ -64,6 +64,9 @@ struct SockInfo
         return {};
     }
 
+    /// \brief increment the referece. Must call release() ro release reference.
+    virtual SockInfo *inc_ref() = 0;
+
     /// \brief release this object. Users should not directly delete this object.
     virtual bool release() = 0;
 
@@ -103,7 +106,7 @@ struct IOBuffer
     }
     void resize( size_type n )
     {
-        m_size = n;
+        m_size = std::max( m_size, n );
     }
     char &operator[]( size_type idx )
     {
@@ -170,12 +173,14 @@ struct IOEvents
     virtual void set_sock( SockInfo &sock ) = 0;
 
     /// \brief callback when IO read event is ready.
-    virtual void on_event_ready( EVENT_TYPE ) = 0;
+    /// If it posts an event to io thread. sock.inc_ref() must be called before posting, and sock.release() when release the reference.
+    virtual void on_event_ready( SockInfo &sock, EVENT_TYPE ) = 0;
 
-    virtual void set_thread_delegate( ftl::ThreadArrayDelegate<IOThreadTask> threadDelegate ) = 0;
+    /// \brief when required, epoll thread calls it to set io thread.
+    virtual void set_io_thread( ftl::ThreadArrayDelegate<IOThreadTask> threadDelegate, IOEvents::EVENT_TYPE ) = 0;
 
     /// \brief called when this object is not needed when connection is closed.
-    virtual void release() = 0;
+    virtual void on_sock_closed() = 0;
 };
 
 /// \brief Per-sock object.
@@ -190,18 +195,59 @@ struct RecvBase : IOEvents
     }
 
     /// \brief set worker thread
-    void set_thread_delegate( ftl::ThreadArrayDelegate<IOThreadTask> threadDelegate ) override
+    void set_io_thread( ftl::ThreadArrayDelegate<IOThreadTask> threadDelegate, IOEvents::EVENT_TYPE ) override
     {
-        m_workerThreadDelegate = threadDelegate;
+        m_recvThread = threadDelegate;
     }
 
-    /// \return may return EWOULDBLOCK.
-    void on_event_ready( EVENT_TYPE event ) override
+    void on_event_ready( SockInfo &, EVENT_TYPE event ) override
     {
         assert( event == IOEvents::READ_EVENT );
         assert( m_pSock );
         assert( m_recvBuf.size() == 0 );
 
+        if ( m_recvThread )
+        {
+            m_pSock->inc_ref();
+            m_recvThread.put_task( [this]( std::size_t ) {
+                read_proc();
+                m_pSock->release();
+            } );
+        }
+        else
+        {
+            read_proc();
+        }
+    }
+
+    void on_sock_closed() override
+    {
+        if ( m_recvBuf.size() || m_recvBuf.m_pos )
+        {
+            FMT_E( m_logger, "release sock:{} with non-empty recv buffer size:{}, pos:{}", *m_pSock, m_recvBuf.size(), m_recvBuf.m_pos );
+        }
+        delete this;
+    }
+
+    ~RecvBase() override
+    {
+    }
+
+protected:
+    /// Child must implement this. Output msglength.
+    /// Typical implemention: {
+    ///     start_recv(headersize);
+    ///     get_msg_length_from_header;
+    /// }
+    virtual IOError recv_header( SockInfo &sock, unsigned &msglength ) = 0;
+
+    /// \brief Child must implement this. Data has been read into recvBuf.
+    /// In this function, users may choose to send generated structure to worker thread.
+    virtual void on_recv_complete( SockInfo &sock ) = 0;
+
+protected:
+    void read_proc()
+    {
         IOError ret;
         if ( m_recvBuf.m_pos == 0 ) // the already read bytes.
         {
@@ -233,34 +279,7 @@ struct RecvBase : IOEvents
         on_recv_complete( *m_pSock );
         m_recvBuf.clear(); // reset to 0.
     }
-
-    void release() override
-    {
-        if ( m_recvBuf.size() || m_recvBuf.m_pos )
-        {
-            FMT_E( m_logger, "release sock:{} with non-empty recv buffer size:{}, pos:{}", *m_pSock, m_recvBuf.size(), m_recvBuf.m_pos );
-        }
-        delete this;
-    }
-
-    ~RecvBase() override
-    {
-    }
-
-protected:
-    /// Child must implement this. Output msglength.
-    /// Typical implemention: {
-    ///     start_recv(headersize);
-    ///     get_msg_length_from_header;
-    /// }
-    virtual IOError recv_header( SockInfo &sock, unsigned &msglength ) = 0;
-
-    /// \brief Child must implement this. Data has been read into recvBuf.
-    /// In this function, users may choose to send generated structure to worker thread.
-    virtual void on_recv_complete( SockInfo &sock ) = 0;
-
-protected:
-    /// \brief read header and allocate the whole buffer. recvBuf.m_pos is the bytes read.
+    /// \brief read header and allocate the whole buffer. m_recvBuf.m_pos is the bytes read.
     IOError start_recv( SockInfo &sock, unsigned HeaderSize )
     {
         m_recvBuf.clear();
@@ -271,6 +290,7 @@ protected:
         m_recvBuf.m_pos = ret.bytesProcessed;
         return ret;
     }
+    /// \brief read payload. m_recvBuf.m_pos is updated.
     IOError continue_recv( SockInfo &sock, unsigned nBytes )
     {
         assert( nBytes + m_recvBuf.m_pos <= m_recvBuf.size() );
@@ -282,7 +302,7 @@ protected:
 protected:
     DynBuffer m_recvBuf;
     SockInfo *m_pSock = nullptr;
-    ftl::ThreadArrayDelegate<IOThreadTask> m_workerThreadDelegate;
+    ftl::ThreadArrayDelegate<IOThreadTask> m_recvThread;
     LoggerType m_logger;
 };
 
@@ -308,17 +328,17 @@ struct SendBase : IOEvents
         m_pSock = &sock;
     }
 
-    /// \brief call in epoll thread to notify
-    void on_event_ready( IOEvents::EVENT_TYPE ) override
+    /// \brief Sender always uses IO thread to send data.
+    void on_event_ready( SockInfo &, IOEvents::EVENT_TYPE ) override
     {
         assert( m_pSock );
         post_send_task();
     }
 
     /// called by epoll thread or other thread to set sending thread.
-    void set_thread_delegate( ftl::ThreadArrayDelegate<IOThreadTask> threadDelegate ) override
+    void set_io_thread( ftl::ThreadArrayDelegate<IOThreadTask> threadDelegate, IOEvents::EVENT_TYPE ) override
     {
-        m_SendThreadDelegate = threadDelegate;
+        m_SendThread = threadDelegate;
     }
 
     MsgPtr create_msg()
@@ -336,7 +356,7 @@ struct SendBase : IOEvents
     }
 
     /// \brief release object when sock is closed.
-    void release() override
+    void on_sock_closed() override
     {
         if ( m_chan.peek() )
         {
@@ -348,12 +368,14 @@ struct SendBase : IOEvents
 protected:
     void post_send_task()
     {
-        assert( m_SendThreadDelegate );
-        m_SendThreadDelegate.put_task( [this]( std::size_t ) {
+        assert( m_SendThread );
+        m_pSock->inc_ref();
+        m_SendThread.put_task( [this]( std::size_t ) {
             while ( auto pMsg = m_chan.recv_unique() )
             {
                 send_msg_proc( pMsg );
             }
+            m_pSock->release();
         } );
     }
     /// \return 0 for completed sending, or errno
@@ -386,7 +408,7 @@ protected:
 
 protected:
     Chan m_chan; // send Msg to IO thread.
-    ftl::ThreadArrayDelegate<IOThreadTask> m_SendThreadDelegate;
+    ftl::ThreadArrayDelegate<IOThreadTask> m_SendThread;
     SockInfo *m_pSock = nullptr;
     LoggerType m_logger;
 };
@@ -422,10 +444,10 @@ protected:
             m_parent = parent;
         }
 
-        SockData &inc_ref()
+        SockInfo *inc_ref() override
         {
             m_refcount.fetch_add( 1 );
-            return *this;
+            return this;
         }
 
         bool release() override
@@ -433,9 +455,9 @@ protected:
             if ( dec_ref() != 0 )
                 return false;
             if ( m_pRecvEvents )
-                m_pRecvEvents->release();
+                m_pRecvEvents->on_sock_closed();
             if ( m_pSendEvents )
-                m_pSendEvents->release();
+                m_pSendEvents->on_sock_closed();
             return true;
         }
         bool close() override
@@ -562,7 +584,9 @@ public:
             m_epollThread.join();
     }
 
-    /// \brief if calling function keeps returned SockInfo*, it must call inco
+    /// \brief if calling function keeps returned SockInfo::Ptr.
+    /// Automatically assign io threads.
+    /// IOEvents will be owned by SockInfo.
     typename SockInfo::Ptr add_sock( int sockFd, IOEvents *pRecv, IOEvents *pSend )
     {
         if ( pRecv )
@@ -580,7 +604,7 @@ public:
         return std::move( res );
     }
 
-    /// \param iRecvThreadIdx or iSendThreadIdx, if -1, process event within epoll thread.
+    /// \param iRecvThreadIdx or iSendThreadIdx, if -1, process event within epoll thread. Otherwise assign io threads.
     typename SockInfo::Ptr add_sock( int sockFd, IOEvents *pRecv, int iRecvThreadIdx, IOEvents *pSend, int iSendThreadIdx )
     {
         if ( !pRecv && !pSend )
@@ -589,11 +613,14 @@ public:
         }
         SockData *sock = new SockData( sockFd, this );
         if ( pRecv && iRecvThreadIdx >= 0 )
+        {
             sock->m_recvThreadIdx = iRecvThreadIdx % m_pRecvThreads->size();
+            pRecv->set_io_thread( m_pRecvThreads->get_thread_deleate( sock->m_recvThreadIdx ), IOEvents::READ_EVENT ); // send sending thread.
+        }
         if ( pSend && iSendThreadIdx >= 0 )
         {
             sock->m_sendThreadIdx = iSendThreadIdx % m_pSendThreads->size();
-            pSend->set_thread_delegate( m_pSendThreads->get_thread_deleate( sock->m_sendThreadIdx ) ); // send sending thread.
+            pSend->set_io_thread( m_pSendThreads->get_thread_deleate( sock->m_sendThreadIdx ), IOEvents::WRITE_EVENT ); // send sending thread.
         }
         sock->m_pRecvEvents = pRecv;
         sock->m_pSendEvents = pSend;
@@ -689,61 +716,24 @@ protected:
                 }
                 else if ( events[i].events & EPOLLIN )
                 {
-                    on_recv_ready( *pUserData );
+                    //                    on_recv_ready( *pUserData );
+                    pUserData->m_pRecvEvents->on_event_ready( *pUserData, IOEvents::READ_EVENT );
                 }
                 else if ( events[i].events & EPOLLOUT )
                 {
-                    on_send_ready( *pUserData );
+                    //                    on_send_ready( *pUserData );
+                    pUserData->m_pSendEvents->on_event_ready( *pUserData, IOEvents::READ_EVENT );
                 }
                 else
                 {
                     FMT_E( m_logger, "[E] unknown epoll event :{}, SockData:", events[i].events, *pUserData );
+                    close_sock( *pUserData );
                 }
             }
         }
 
         close( m_epollFd );
         CAT_I( m_logger, "Exited epoll_proc" );
-    }
-    // process epoll read event.
-    void on_recv_ready( SockData &sock )
-    {
-        assert( sock.m_pRecvEvents );
-        if ( !sock.m_pRecvEvents )
-        {
-            return;
-        }
-        if ( sock.m_recvThreadIdx < 0 )
-        {
-            sock.m_pRecvEvents->on_event_ready( IOEvents::READ_EVENT );
-            return;
-        }
-
-        sock.inc_ref();
-        m_pRecvThreads->put_task( sock.m_recvThreadIdx, [&]( std::size_t ) {
-            sock.m_pRecvEvents->on_event_ready( IOEvents::READ_EVENT );
-            release_sock( sock );
-        } );
-    }
-
-    void on_send_ready( SockData &sock )
-    {
-        assert( sock.m_pSendEvents );
-        if ( !sock.m_pSendEvents )
-        {
-            return;
-        }
-        if ( sock.m_sendThreadIdx < 0 )
-        {
-            sock.m_pSendEvents->on_event_ready( IOEvents::WRITE_EVENT );
-            return;
-        }
-
-        sock.inc_ref();
-        m_pSendThreads->put_task( sock.m_recvThreadIdx, [&]( std::size_t ) {
-            sock.m_pSendEvents->on_event_ready( IOEvents::WRITE_EVENT );
-            release_sock( sock );
-        } );
     }
 };
 } // namespace jz

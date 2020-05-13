@@ -596,10 +596,13 @@ namespace type_erasure
     public:
         using TypeInfoExType = CallableTypeInfo<Signature, bMutCallable>;
         using this_type = Erasure;
+        constexpr static std::size_t SIZE = uiSize;
+        constexpr static std::size_t SIZE_EFFECTIVE = SIZE - sizeof( void * ); /// sizeof buffer used to store funcion.
+
         //        using base_type = StoragePolicy<uiSize, false, bMutCallable, bCopyConstructible, bMoveConstructible>;
 
         // Needs to be declared here for use in decltype below
-        constexpr static std::size_t FunctorStorageSize = uiSize - sizeof (void*);
+        constexpr static std::size_t FunctorStorageSize = SIZE_EFFECTIVE;
         const TypeInfoExType *m_pInfoEx = nullptr;
         char m_storage[FunctorStorageSize];
 
@@ -661,28 +664,28 @@ namespace type_erasure
             if ( m_pInfoEx )
             {
                 m_pInfoEx->pDestroy( &m_storage );
+                m_pInfoEx = nullptr;
             }
         }
 
+        /// \brief copy.
         template<std::size_t M, bool bMutCallableT>
         Erasure &operator=( const Erasure<M, Signature, bMutCallableT, true, bMoveConstructible> &erasure )
         {
             static_assert( bMutCallableT == bMutCallable || !bMutCallableT, "Cannot convert from mutable call to immutable call!" );
-            // it should require erasure.size() <= this->capacity()
+            // dyanmic check : it should require erasure.size() <= this->capacity()
             static_assert( uiSize >= M, "Cannot move large to small memory!" );
-            this->~Erasure();
 
+            this->~Erasure();
             if ( erasure.m_pInfoEx )
-            {
                 erasure.m_pInfoEx->pCopy( &m_storage, &erasure.m_storage );
-            }
 
             m_pInfoEx = erasure.m_pInfoEx;
-
             return *this;
         }
 
-        // Will not work if moving into itself
+        /// \brief move copy.
+        /// Will not work if moving into itself.
         template<std::size_t M, bool bMutCallableT>
         Erasure &operator=( Erasure<M, Signature, bMutCallableT, bCopyConstructible, true> &&erasure )
         {
@@ -692,14 +695,16 @@ namespace type_erasure
             assert( &erasure != this );
 
             this->~Erasure();
-
             if ( erasure.m_pInfoEx )
-            {
                 erasure.m_pInfoEx->pMove( &m_storage, &erasure.m_storage );
-            }
 
             m_pInfoEx = erasure.m_pInfoEx;
+            return *this;
+        }
 
+        Erasure &operator=( std::nullptr_t )
+        {
+            this->~Erasure();
             return *this;
         }
 
@@ -721,6 +726,7 @@ namespace type_erasure
             return !empty();
         }
 
+        /// \return internal functor size.
         std::size_t size() const
         {
             return empty() ? 0 : m_pInfoEx->pSize();
@@ -735,7 +741,7 @@ namespace type_erasure
         {
             this->~Erasure();
             emplace_impl<T>( std::forward<Args>( args )... );
-            return get<T>();
+            return *target<T>();
         }
 
         template<class T, class... Args>
@@ -743,21 +749,23 @@ namespace type_erasure
         {
             this->~Erasure();
             emplace_brace_init_impl<T>( std::forward<Args>( args )... );
-            return get<T>();
+            return *target<T>();
         }
 
         template<class T>
-        T &get()
+        T *target()
         {
-            assert( m_pInfoEx );
+            if ( !m_pInfoEx )
+                return nullptr;
             void *p = &m_storage;
             return *static_cast<T *>( p );
         }
 
         template<class T>
-        const T &get() const
+        const T *target() const
         {
-            assert( m_pInfoEx );
+            if ( !m_pInfoEx )
+                return nullptr;
             const void *p = &m_storage;
             return *static_cast<const T *>( p );
         }
@@ -795,7 +803,7 @@ namespace type_erasure
         {
             static_assert( !bCopyConstructible || type_erasure::erasure_traits<T>::is_copy_constructible, "T must be is_copy_constructible" );
             static_assert( !bMoveConstructible || type_erasure::erasure_traits<T>::is_move_constructible, "T must be is_move_constructible" );
-            static_assert( sizeof( T ) <= uiSize, "T is too large" );
+            static_assert( sizeof( T ) <= SIZE_EFFECTIVE, "Functor T is too large" );
 
             ::new ( get_storage() ) T( std::forward<Args>( args )... );
             m_pInfoEx = &StaticCallableTypeInfo<T, Signature, bMutCallable>::value;
@@ -806,7 +814,7 @@ namespace type_erasure
         {
             static_assert( !bCopyConstructible || type_erasure::erasure_traits<T>::is_copy_constructible, "T must be is_copy_constructible" );
             static_assert( !bMoveConstructible || type_erasure::erasure_traits<T>::is_move_constructible, "T must be is_move_constructible" );
-            static_assert( sizeof( T ) <= uiSize, "T is too large" );
+            static_assert( sizeof( T ) <= SIZE_EFFECTIVE, "Functor T is too large" );
 
             ::new ( get_storage() ) T{std::forward<Args>( args )...};
             m_pInfoEx = &StaticCallableTypeInfo<T, Signature, bMutCallable>::value;
@@ -821,6 +829,12 @@ namespace type_erasure
 
 } // namespace type_erasure
 
+/// \brief memory layout of std::function: { functor_storage: 16 bytes, pointer to object manager: 8 bytes, _M_invoker: 8 bytes }
+///     - In std::function, Effective size for functor is 16 bytes;
+///     - std::function doesn't support move constuctor.
+///
+/// memory layout of InplaceFunction: { pointer to object manager : 8 bytes , functor_storage: inplace fixed size }
+///    - it doesn't check nullptr when invoke InplaceFunction.
 template<class Signature, std::size_t N, bool bCopyConstructible = true, bool bMoveConstructible = true>
 using InplaceFunction = typename type_erasure::Erasure<N, Signature, false, bCopyConstructible, bMoveConstructible>;
 template<class Signature, std::size_t N, bool bCopyConstructible = true, bool bMoveConstructible = true>

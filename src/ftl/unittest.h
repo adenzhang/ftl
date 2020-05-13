@@ -75,8 +75,17 @@ When run the test main function, users can specify test cases to run or not. lik
 ///
 namespace jz
 {
-template<class OStream, size_t max_frames = 63>
-void PrintStack( OStream &os, int skipFrames = 3 )
+
+template<class Obj>
+bool is_likely_stack_addr( Obj *addr )
+{
+    int x = 0;
+    std::ptrdiff_t stackaddr = reinterpret_cast<std::ptrdiff_t>( &x ), target = reinterpret_cast<std::ptrdiff_t>( addr );
+    return target > stackaddr;
+}
+
+template<class OStream = std::ostream, size_t max_frames = 63>
+void PrintStack( OStream &os = std::cout, int skipFrames = 3 )
 {
     void *addrlist[max_frames + 1];
     int addrlen = backtrace( addrlist, sizeof( addrlist ) / sizeof( void * ) );
@@ -182,7 +191,7 @@ void PrintStack( OStream &os, int skipFrames = 3 )
         T_EXIT_OR_THROW( ss.str(), UnitTestRequireException );                                                                                      \
     } while ( false )
 
-#define SECTION( name, ... ) for ( auto _ok_ = StartSection( name ); _ok_; throw UnitTestRerunException( name ) )
+#define SECTION( name, ... ) for ( const auto _ok_ = StartSection( name ); _ok_; throw UnitTestRerunException( name ) )
 
 #define ADD_TEST_CASE( funcName, ... )                                                                                                              \
     static struct funcName##_TestCase : public UnitTestCaseBase                                                                                     \
