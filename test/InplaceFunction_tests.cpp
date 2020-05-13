@@ -3,6 +3,22 @@
 #include <ftl/inplace_function.h>
 #include <functional>
 
+#include <cstring>
+
+template<class Obj, class Ret, class... Args>
+bool is_virtual_func( Ret ( Obj::*pMemberFunc )( Args... ) )
+{
+    std::ptrdiff_t addr[2];
+    std::memcpy( addr, reinterpret_cast<void *>( &pMemberFunc ), sizeof( Ret( Obj::* )( Args... ) ) );
+    return addr[0] < 4096; // max 1024 virtual functinons.
+}
+template<class Obj, class Ret, class... Args>
+bool is_virtual_func( Ret ( Obj::*pMemberFunc )( Args... ) const )
+{
+    std::ptrdiff_t addr[32];
+    std::memcpy( addr, reinterpret_cast<void *>( &pMemberFunc ), sizeof( Ret( Obj::* )( Args... ) const ) );
+    return addr[0] < 4096; // max 1024 virtual functinons.
+}
 
 ADD_TEST_CASE( FixedFunction_tests )
 {
@@ -45,7 +61,7 @@ ADD_TEST_CASE( FixedFunction_tests )
 
     SECTION( "StdFunction vs InplaceFunction" )
     {
-        //-- test allocation
+        //-- test allocation --------------------------------
         //  std::function has size 32, effective size 16.
         bool isInStack;
         auto f0 = [this, &isInStack, y = std::size_t( 0 )]( int x ) mutable {
@@ -63,7 +79,7 @@ ADD_TEST_CASE( FixedFunction_tests )
         mutFixfunc( 1 ); // functor is in heap
         REQUIRE( isInStack );
 
-        //-- test move construct/copy
+        //-- test move construct/copy ------------------------
         //    std::function only supports copy constructor.
         //        StdFunc stdfunc1 = Functor(); // compile error! std::function doesn't support move copy.
         //        stdfunc = Functor(); // compile error! std::function doesn't support move copy.
@@ -81,11 +97,23 @@ ADD_TEST_CASE( FixedFunction_tests )
             {
                 return x & 0x1;
             }
-            bool iseven( int x )
+            bool iseven( int x ) const
             {
                 return !( x & 0x1 );
             }
+
+            virtual bool like_virtual( int x ) const
+            {
+                return x % 3;
+            }
+            virtual bool like_virtual2( int x ) const
+            {
+                return x % 3;
+            }
         };
+        REQUIRE( is_virtual_func( &My::like_virtual2 ) );
+        REQUIRE( is_virtual_func( &My::like_virtual ) );
+        REQUIRE( !is_virtual_func( &My::iseven ) );
 
         Func f1 = &My::isodd;
         f1( 3 );
@@ -94,16 +122,20 @@ ADD_TEST_CASE( FixedFunction_tests )
         stdfunc = &My::isodd;
         REQUIRE( stdfunc( 3 ) );
 
-        //--- virtual/member function
+        //--- virtual/member function -------------------------
         My m;
         using StdMemFunc = std::function<bool ( My::* )( int )>;
         using MemFunc = ftl::InplaceFunction<bool( My &, int ), 32>;
         //        StdMemFunc stdmemfunc = std::mem_fn( &my::iseven ); // compile error!
         MemFunc memfunc;
-        memfunc = ftl::wrap_member_func( &My::iseven );
+        memfunc = ftl::member_func<&My::iseven>(); // isodd doesn't match as it's mutable.
+        memfunc = ftl::member_func( &My::iseven ); // isodd doesn't match as it's mutable.
         REQUIRE( memfunc( m, 2 ) );
+        REQUIRE_EQ( memfunc.size(), 16u );
 
-        f1 = ftl::wrap_member_func( &My::iseven, m );
+        f1 = ftl::member_func( &My::iseven, &m );
+        f1( 3 );
+        REQUIRE_EQ( f1.size(), 24u );
     }
     SECTION( "basic" )
     {

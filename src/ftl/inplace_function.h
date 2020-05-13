@@ -81,156 +81,6 @@ private:
     std::uintptr_t m_addr;
 };
 
-////////////////////////////////////////////////////////////////////////
-///
-///     Object Storage
-///
-////////////////////////////////////////////////////////////////////////
-
-template<std::size_t N, std::size_t Align>
-struct InplaceStorage
-{
-    static constexpr auto inplace_size = N;
-    void *ptr() const
-    {
-        return &m_data;
-    }
-
-private:
-    std::aligned_storage_t<N, Align> m_data;
-};
-
-
-
-template<std::size_t Align>
-struct InplaceStorage<0, Align>
-{
-    static constexpr std::size_t inplace_size = 0;
-    constexpr void *ptr() const
-    {
-        return nullptr;
-    }
-};
-
-template<bool bUseDynamicAlloc>
-struct AlignedDynamicStorage
-{
-    void *allocate( std::size_t N, std::size_t Align )
-    {
-        assert( !m_ptr );
-        return m_ptr = std::aligned_alloc( Align, N );
-    }
-
-    void deallocate()
-    {
-        if ( m_ptr )
-        {
-            std::free( m_ptr );
-            m_ptr = nullptr;
-        }
-    }
-    void *ptr() const
-    {
-        return m_ptr;
-    }
-    void set_ptr( void *p )
-    {
-        assert( !m_ptr );
-        m_ptr = p;
-    }
-
-protected:
-    void *m_ptr = nullptr;
-};
-
-template<>
-struct AlignedDynamicStorage<false>
-{
-    void *allocate( std::size_t, std::size_t )
-    {
-        return nullptr;
-    }
-    void deallocate()
-    {
-    }
-    void *ptr() const
-    {
-        return nullptr;
-    }
-};
-
-// allocate only once
-template<std::size_t InplaceSize, std::size_t Align, bool bUseDynamicAlloc>
-struct BoxedStorageBase : private InplaceStorage<InplaceSize, Align>, private AlignedDynamicStorage<bUseDynamicAlloc>
-{
-    using InplaceAlloc = InplaceStorage<InplaceSize, Align>;
-    using DynamicAlloc = AlignedDynamicStorage<bUseDynamicAlloc>;
-    static constexpr auto use_dynamic_alloc = bUseDynamicAlloc;
-
-    static_assert( InplaceSize > 0 || bUseDynamicAlloc, "Unable to store!" );
-
-    BoxedStorageBase( const BoxedStorageBase & ) = delete;
-    BoxedStorageBase &operator=( const BoxedStorageBase & ) = delete;
-
-    void *allocate( std::size_t M )
-    {
-        if constexpr ( InplaceAlloc::inplace_size > 0 )
-        {
-            if ( InplaceAlloc::inplace_size >= M )
-            {
-                auto p = InplaceAlloc::ptr();
-                DynamicAlloc::set_ptr( p );
-                return p;
-            }
-        }
-        if constexpr ( use_dynamic_alloc )
-            return DynamicAlloc::allocate( M, Align );
-        else
-            return nullptr;
-    }
-    constexpr bool can_allocate( std::size_t M ) const
-    {
-        return ( InplaceAlloc::inplace_size >= M ) ? true : use_dynamic_alloc;
-    }
-
-    void deallocate()
-    {
-        if ( is_using_inplace() )
-            DynamicAlloc::deallocate();
-    }
-    void *inplace_ptr() const
-    {
-        return InplaceAlloc::ptr();
-    }
-    void *get_ptr() const
-    {
-        if constexpr ( use_dynamic_alloc )
-            return DynamicAlloc::ptr();
-        else
-            return InplaceAlloc::ptr();
-    }
-    constexpr bool is_using_inplace() const
-    {
-        if constexpr ( use_dynamic_alloc )
-            return DynamicAlloc::ptr() == InplaceAlloc::ptr();
-        else
-            return true;
-    }
-
-    // if both bUseDynamicAlloc
-    template<std::size_t InplaceSizeT, std::size_t AlignT>
-    std::enable_if_t<bUseDynamicAlloc, bool> try_movein_ptr( BoxedStorageBase<InplaceSizeT, AlignT, true> &another )
-    {
-        assert( is_using_inplace() );
-        if ( !another.is_using_inplace() )
-        {
-            DynamicAlloc::set_ptr( another.get_ptr() );
-            another.set_ptr( nullptr );
-            return true;
-        }
-        return false;
-    }
-};
 
 ///============  FuncPtr Erasure =================================
 /// static function based implementation
@@ -318,15 +168,6 @@ namespace type_erasure
         erasure_size_type pSize;
     };
 
-    //    template<class U>
-    //    struct TypeErasureInfo : TypeErasureInfoBase
-    //    {
-    //        template<class T = U>
-    //        constexpr TypeErasureInfo( erasure_traits<T> ) : TypeErasureInfoBase( erasure_traits<T>{} )
-    //        {
-    //        }
-    //    };
-
     template<class Signature, bool bMutCallable>
     struct TypeErasureInvokeInfo : TypeErasureInfoBase
     {
@@ -412,177 +253,6 @@ namespace type_erasure
         }
     };
 
-    /// @class AnyStorageBase Inplace storage/allocator for any type. It can be used like std::any type and std::function with SBO.
-    /// Small buffer optimization: when the stored object size <= InplaceSize, object will be allocated in inplace. Otherwise, object will be
-    /// allocated dynamically. It can be copyable and/or moveable, which are specicified by template parameters.
-    ///
-    /// @tparam TypeInfoAccessor Traits (can be TypeInfoAccess<...> or CallableTypeInfoAccess<...>:
-    ///     const TypeInfo *get_typeinfo(); // get static TypeInfo
-    ///     void set_typeinfo<T>();
-    ///     void set_typeinfo(const TypeInfo *);
-    template<class TypeInfoAccessor, std::size_t InplaceSize, bool bUseDynamicAlloc, bool bCopyConstructible, bool bMoveConstructible>
-    struct AnyStorageBase : public BoxedStorageBase<InplaceSize, alignof( std::aligned_storage_t<InplaceSize> ), bUseDynamicAlloc>
-    {
-        using base_type = BoxedStorageBase<InplaceSize, alignof( std::aligned_storage_t<InplaceSize> ), bUseDynamicAlloc>;
-        using this_type = AnyStorageBase<TypeInfoAccessor, InplaceSize, bUseDynamicAlloc, bCopyConstructible, bMoveConstructible>;
-
-        static const auto has_allocator = bUseDynamicAlloc;
-        static const auto has_inplace = InplaceSize > 0;
-        static const auto is_copyable = bCopyConstructible;
-        static const auto is_moveable = bMoveConstructible;
-
-        using base_type::allocate;
-        using base_type::can_allocate;
-        using base_type::deallocate;
-        using base_type::get_ptr;
-        using base_type::inplace_ptr;
-        using base_type::is_using_inplace;
-
-        TypeInfoAccessor m_typeInfo; // assume: as long as there's a typeinfo,
-
-        ~AnyStorageBase()
-        {
-            destroy();
-        }
-        template<class T>
-        AnyStorageBase( T &&val )
-        {
-            if ( !base_type::allocate( sizeof( T ) ) )
-                throw std::length_error( "Inplace size is too small for type T!" );
-            emplace_impl<T>( std::forward<T>( val ) );
-        }
-        template<class T, class... Args>
-        AnyStorageBase( std::in_place_type_t<T>, Args &&... args )
-        {
-            if ( !base_type::allocate() )
-                throw std::length_error( "Inplace size is too small for type T!" );
-            emplace_impl<T>( std::forward<Args>( args )... );
-        }
-
-        // copy constructor
-        template<std::size_t InplaceSizeT, bool bUseDynamicAllocT, bool bMoveConstructibleT>
-        AnyStorageBase( const AnyStorageBase<TypeInfoAccessor, InplaceSizeT, bUseDynamicAllocT, true, bMoveConstructibleT> &another )
-        {
-            if ( auto pTypeInfo = another.m_typeInfo.get_typeinfo() )
-            {
-                if ( !base_type::allocate( pTypeInfo->pSize() ) )
-                    throw std::length_error( "Inplace size is too small to copy type in another!" );
-                pTypeInfo->pCopy( base_type::get_ptr(), another.get_ptr() );
-            }
-            m_typeInfo.set_typeinfo( another.get_typeinfo() );
-        }
-
-        // move constructor
-        template<std::size_t InplaceSizeT, bool bUseDynamicAllocT, bool bCopyConstructibleT>
-        AnyStorageBase( AnyStorageBase<TypeInfoAccessor, InplaceSizeT, bUseDynamicAllocT, bCopyConstructibleT, true> &&another )
-        {
-            if ( auto pTypeInfo = another.m_typeInfo.get_typeinfo() )
-            {
-                if constexpr ( bUseDynamicAlloc && bUseDynamicAllocT )
-                {
-                    if ( base_type::try_movein_ptr( another ) ) // move
-                    {
-                        m_typeInfo.set_typeinfo( another.get_typeinfo() );
-                        another.m_typeInfo.set_typeinfo( nullptr ); // no typeinfo in another
-                        return;
-                    }
-                }
-                if ( !base_type::allocate( pTypeInfo->pSize() ) )
-                    throw std::length_error( "Inplace size is too small to copy type in another!" );
-                pTypeInfo->pMove( base_type::get_ptr(), another.get_ptr() );
-            }
-            m_typeInfo.set_typeinfo( another.get_typeinfo() );
-        }
-
-        // allocate memory and set type info
-        // throws std::length_error when allocation fails.
-        template<std::size_t InplaceSizeT, bool bUseDynamicAllocT, bool bCopyConstructibleT, bool bMoveConstructibleT>
-        void preallocate_for_copy(
-                const AnyStorageBase<TypeInfoAccessor, InplaceSizeT, bUseDynamicAllocT, bCopyConstructibleT, bMoveConstructibleT> &another )
-        {
-            if ( auto pTypeInfo = another.m_typeInfo.get_typeinfo() )
-            {
-                // check  if it needs free and reallocate.
-                if ( auto pOldInfo = m_typeInfo.get_typeinfo() )
-                {
-                    if ( pOldInfo->pSize() < pTypeInfo->pSize() )
-                    {
-                        destroy();
-                        if ( !base_type::allocate( pTypeInfo->pSize() ) )
-                            throw std::length_error( "Inplace size is too small to copy type in another after deallocate!" );
-                    }
-                    else
-                        pOldInfo->pDestroy();
-                }
-                else
-                {
-                    if ( !base_type::allocate( pTypeInfo->pSize() ) )
-                        throw std::length_error( "Inplace size is too small to copy type in another!" );
-                }
-                //                pTypeInfo->pCopy( base_type::get_ptr(), another.get_ptr() );
-            }
-            else
-            {
-                if ( auto pOldInfo = m_typeInfo.get_typeinfo() )
-                    pOldInfo->pDestroy();
-            }
-
-            m_typeInfo.set_typeinfo( another.get_typeinfo() );
-        }
-
-        template<std::size_t InplaceSizeT, bool bUseDynamicAllocT, bool bMoveConstructibleT>
-        this_type &operator=( const AnyStorageBase<TypeInfoAccessor, InplaceSizeT, bUseDynamicAllocT, true, bMoveConstructibleT> &another )
-        {
-            preallocate_for_copy( another );
-            if ( auto pInfo = m_typeInfo.get_typeinfo() )
-                pInfo->pCopy( base_type::get_ptr(), another.get_ptr() );
-            return *this;
-        }
-        template<std::size_t InplaceSizeT, bool bUseDynamicAllocT, bool bCopyConstructibleT>
-        this_type &operator=( AnyStorageBase<TypeInfoAccessor, InplaceSizeT, bUseDynamicAllocT, bCopyConstructibleT, true> &&another )
-        {
-            if constexpr ( bUseDynamicAlloc && bUseDynamicAllocT )
-            {
-                if ( auto pTypeInfo = another.m_typeInfo.get_typeinfo(); pTypeInfo && !another.is_using_inplace() )
-                {
-                    destroy();
-                    base_type::try_movein_ptr( another ); // must return true;
-                    m_typeInfo.set_typeinfo( another.get_typeinfo() );
-                    another.m_typeInfo.set_typeinfo( nullptr ); // no typeinfo in another
-                    return *this;
-                }
-            }
-            preallocate_for_copy( another );
-            if ( auto pInfo = m_typeInfo.get_typeinfo() )
-                pInfo->pMove( base_type::get_ptr(), another.get_ptr() );
-            return *this;
-        }
-
-        void destroy()
-        {
-            destroy_object();
-            base_type::deallocate();
-            m_typeInfo.set_typeinfo( nullptr );
-        }
-        void destroy_object()
-        {
-            if ( auto pTypeInfo = m_typeInfo.get_typeinfo() )
-                pTypeInfo->pDestroy();
-        }
-
-        void *get_ptr() const
-        {
-            return m_typeInfo.get_typeinfo() ? base_type::get_ptr() : nullptr;
-        }
-
-    protected:
-        template<class T, class... Args>
-        void emplace_impl( Args &&... args )
-        {
-            new ( base_type::get_ptr() ) T( std::forward<Args>( args )... );
-            m_typeInfo.template set_typeinfo<T>();
-        }
-    };
 
     /// \tparam uiSize sizeof erasure. the acture size for functor is uiSize - sizeof(void*).
     template<std::size_t uiSize,
@@ -616,7 +286,23 @@ namespace type_erasure
         {
         }
 
-        // throws std::length_error
+        Erasure( std::nullptr_t ) : m_pInfoEx( nullptr )
+        {
+        }
+
+        template<class T, class Test = std::enable_if_t<!std::is_same_v<this_type, RemoveCVRef_t<T>>>>
+        Erasure( T &&value )
+        {
+            construct( std::forward<T>( value ) );
+        }
+
+        template<class T, class... Args>
+        Erasure( std::in_place_type_t<T>, Args &&... args )
+        {
+            emplace_impl<T>( std::forward<Args>( args )... );
+        }
+
+        /// \brief copy construct.
         template<std::size_t M, bool bMutCallableT>
         Erasure( const Erasure<M, Signature, bMutCallableT, true, bMoveConstructible> &erasure )
         {
@@ -631,6 +317,7 @@ namespace type_erasure
             m_pInfoEx = reinterpret_cast<const TypeInfoExType *>( erasure.m_pInfoEx );
         }
 
+        /// \brief move construct.
         template<std::size_t M, bool bMutCallableT>
         Erasure( Erasure<M, Signature, bMutCallableT, bCopyConstructible, true> &&erasure )
         {
@@ -645,18 +332,6 @@ namespace type_erasure
             }
 
             m_pInfoEx = reinterpret_cast<const TypeInfoExType *>( erasure.m_pInfoEx );
-        }
-
-        template<class T, class Test = std::enable_if_t<!std::is_same_v<this_type, RemoveCVRef_t<T>>>>
-        Erasure( T &&value )
-        {
-            construct( std::forward<T>( value ) );
-        }
-
-        template<class T, class... Args>
-        Erasure( std::in_place_type_t<T>, Args &&... args )
-        {
-            emplace_impl<T>( std::forward<Args>( args )... );
         }
 
         ~Erasure()
@@ -843,34 +518,263 @@ template<class Signature, std::size_t N, bool bCopyConstructible = true, bool bM
 using MutableInplaceFunction = typename type_erasure::Erasure<N, Signature, true, bCopyConstructible, bMoveConstructible>;
 
 
-/// \brief wrap member function to functor,
-/// Ref object.
+/////////////////////////////////////////////////////////////////////////////////////////
+///
+///           Member functions
+///
+/////////////////////////////////////////////////////////////////////////////////////////
+
+template<class MemberFuncT>
+struct MemberFuncInvoke;
+
 template<class Obj, class Ret, class... Args>
-auto wrap_member_func( Ret ( Obj::*pMemberFunc )( Args... ) )
+struct MemberFuncInvoke<Ret ( Obj::* )( Args... )>
 {
-    return [pMemberFunc]( Obj &obj, Args &&... args ) { return ( obj.*pMemberFunc )( std::forward<Args>( args )... ); };
+    constexpr static auto is_const_member = false;
+    using ObjectType = Obj;
+    using ClassType = std::remove_const_t<Obj>;
+    using MemberFuncType = Ret ( Obj::* )( Args... );
+
+    Ret invoke( MemberFuncType pMemberFunc, ObjectType &obj, Args &&... args )
+    {
+        return ( obj.*pMemberFunc )( std::forward<Args>( args )... );
+    }
+};
+
+template<class Obj, class Ret, class... Args>
+struct MemberFuncInvoke<Ret ( Obj::* )( Args... ) const>
+{
+    constexpr static auto is_const_member = true;
+    using ObjectType = const Obj;
+    using ClassType = std::remove_const_t<Obj>;
+    using MemberFuncType = Ret ( Obj::* )( Args... ) const;
+
+    Ret invoke( MemberFuncType pMemberFunc, ObjectType &obj, Args &&... args )
+    {
+        return ( obj.*pMemberFunc )( std::forward<Args>( args )... );
+    }
+};
+
+/// \brief StaticMemberFunc. m_pMemberFunc is constexpr.
+template<class PMemberFuncT, PMemberFuncT pMembFunc>
+struct StaticMemberFunc : MemberFuncInvoke<PMemberFuncT>
+{
+    using base_type = MemberFuncInvoke<PMemberFuncT>;
+    using base_type::ClassType;
+    using base_type::invoke;
+    using base_type::is_const_member;
+    using base_type::MemberFuncType;
+    using base_type::ObjectType;
+
+    constexpr static typename base_type::MemberFuncType m_pMemberFunc = pMembFunc; // todo: delect virtual or not, to optimize non-virtual member.
+
+    template<class... Args>
+    auto operator()( typename base_type::ObjectType &obj, Args &&... args ) const
+    {
+        return ( obj.*m_pMemberFunc )( std::forward<Args>( args )... );
+    }
+};
+namespace internal
+{
+    template<auto val, class Obj, class Ret, class... Args>
+    static constexpr auto member_func_impl( Ret ( Obj::* )( Args... ) const )
+    {
+        return StaticMemberFunc<Ret ( Obj::* )( Args... ) const, val>{};
+    }
+    template<auto val, class Obj, class Ret, class... Args>
+    static constexpr auto member_func_impl( Ret ( Obj::* )( Args... ) )
+    {
+        return StaticMemberFunc<Ret ( Obj::* )( Args... ), val>{};
+    }
+}; // namespace internal
+
+/// \brief MemberFunc with dynamic m_pMemberFunc.
+template<class PMemberFuncT>
+struct MemberFunc;
+template<class Obj, class Ret, class... Args>
+struct MemberFunc<Ret ( Obj::* )( Args... ) const>
+{
+    constexpr static bool is_const_member = true;
+    using ObjectType = const Obj;
+    using ClassType = std::remove_const_t<Obj>;
+    using MemberFuncType = Ret ( Obj::* )( Args... ) const;
+
+    MemberFuncType m_pMemberFunc = nullptr; // todo: delect virtual or not, to optimize non-virtual member.
+
+    MemberFunc() = default;
+    MemberFunc( Ret ( Obj::*pMemberFunc )( Args... ) const ) : m_pMemberFunc( pMemberFunc )
+    {
+    }
+
+    auto operator()( ObjectType &obj, Args &&... args ) const
+    {
+        return ( obj.*m_pMemberFunc )( std::forward<Args>( args )... );
+    }
+};
+template<class Obj, class Ret, class... Args>
+struct MemberFunc<Ret ( Obj::* )( Args... )>
+{
+    constexpr static bool is_const_member = false;
+    using ObjectType = Obj;
+    using ClassType = std::remove_const_t<Obj>;
+    using MemberFuncType = Ret ( Obj::* )( Args... );
+
+    MemberFuncType m_pMemberFunc = nullptr; // todo: delect virtual or not, to optimize non-virtual member.
+
+    MemberFunc() = default;
+    MemberFunc( Ret ( Obj::*pMemberFunc )( Args... ) ) : m_pMemberFunc( pMemberFunc )
+    {
+    }
+
+    auto operator()( ObjectType &obj, Args &&... args ) const
+    {
+        return ( obj.*m_pMemberFunc )( std::forward<Args>( args )... );
+    }
+};
+
+template<class PMemberFuncT>
+struct DelegateFunc;
+template<class Obj, class Ret, class... Args>
+struct DelegateFunc<Ret ( Obj::* )( Args... ) const>
+{
+    constexpr static bool is_const_member = true;
+    using ObjectType = const Obj;
+    using ClassType = std::remove_const_t<Obj>;
+    using MemberFuncType = Ret ( Obj::* )( Args... ) const;
+
+    MemberFuncType m_pMemberFunc = nullptr; // todo: delect virtual or not, to optimize non-virtual member.
+    ObjectType *m_pObj = nullptr;
+
+    DelegateFunc() = default;
+    DelegateFunc( Ret ( Obj::*pMemberFunc )( Args... ) const, ObjectType *obj ) : m_pMemberFunc( pMemberFunc ), m_pObj( obj )
+    {
+    }
+
+    auto operator()( Args &&... args ) const
+    {
+        return ( m_pObj->*m_pMemberFunc )( std::forward<Args>( args )... );
+    }
+};
+template<class Obj, class Ret, class... Args>
+struct DelegateFunc<Ret ( Obj::* )( Args... )>
+{
+    constexpr static bool is_const_member = false;
+    using ObjectType = Obj;
+    using ClassType = std::remove_const_t<Obj>;
+    using MemberFuncType = Ret ( Obj::* )( Args... );
+
+    MemberFuncType m_pMemberFunc = nullptr; // todo: delect virtual or not, to optimize non-virtual member.
+    ObjectType *m_pObj = nullptr;
+
+    DelegateFunc() = default;
+    DelegateFunc( Ret ( Obj::*pMemberFunc )( Args... ), ObjectType *obj ) : m_pMemberFunc( pMemberFunc ), m_pObj( obj )
+    {
+    }
+
+    auto operator()( Args &&... args ) const
+    {
+        return ( m_pObj->*m_pMemberFunc )( std::forward<Args>( args )... );
+    }
+};
+
+template<class Deleter, class PMemberFuncT>
+struct DeletableDelegateFunc;
+template<class Deleter, class Obj, class Ret, class... Args>
+struct DeletableDelegateFunc<Deleter, Ret ( Obj::* )( Args... ) const>
+{
+    constexpr static bool is_const_member = true;
+    using ObjectType = const Obj;
+    using ClassType = std::remove_const_t<Obj>;
+    using MemberFuncType = Ret ( Obj::* )( Args... ) const;
+
+    MemberFuncType m_pMemberFunc = nullptr; // todo: delect virtual or not, to optimize non-virtual member.
+    ObjectType *m_pObj = nullptr;
+    Deleter *m_deleter;
+
+    DeletableDelegateFunc() = default;
+    DeletableDelegateFunc( Ret ( Obj::*pMemberFunc )( Args... ) const,
+                           ObjectType *obj,
+                           std::conditional_t<std::is_reference_v<Deleter>, Deleter, const Deleter &> &deleter )
+        : m_pMemberFunc( pMemberFunc ), m_pObj( obj ), m_deleter{deleter}
+    {
+    }
+
+    auto operator()( Args &&... args ) const
+    {
+        return ( m_pObj->*m_pMemberFunc )( std::forward<Args>( args )... );
+    }
+};
+template<class Deleter, class Obj, class Ret, class... Args>
+struct DeletableDelegateFunc<Deleter, Ret ( Obj::* )( Args... )>
+{
+    constexpr static bool is_const_member = false;
+    using ObjectType = Obj;
+    using ClassType = std::remove_const_t<Obj>;
+    using MemberFuncType = Ret ( Obj::* )( Args... );
+
+    MemberFuncType m_pMemberFunc = nullptr; // todo: delect virtual or not, to optimize non-virtual member.
+    ObjectType *m_pObj = nullptr;
+    Deleter m_deleter;
+
+    DeletableDelegateFunc() = default;
+    DeletableDelegateFunc( Ret ( Obj::*pMemberFunc )( Args... ),
+                           ObjectType *obj,
+                           std::conditional_t<std::is_reference_v<Deleter>, Deleter, const Deleter &> &deleter )
+        : m_pMemberFunc( pMemberFunc ), m_pObj( obj ), m_deleter{deleter}
+    {
+    }
+
+    auto operator()( Args &&... args ) const
+    {
+        return ( m_pObj->*m_pMemberFunc )( std::forward<Args>( args )... );
+    }
+};
+
+/// \return StaticMemberFunc
+template<auto pMemberFunc>
+constexpr auto member_func()
+{
+    return internal::member_func_impl<pMemberFunc>( pMemberFunc );
+};
+
+/// \return dynamic MemberFun.
+template<class Obj, class Ret, class... Args>
+auto member_func( Ret ( Obj::*pMemberFunc )( Args... ) )
+{
+    return MemberFunc<Ret ( Obj::* )( Args... )>( pMemberFunc );
+}
+template<class Obj, class Ret, class... Args>
+auto member_func( Ret ( Obj::*pMemberFunc )( Args... ) const )
+{
+    return MemberFunc<Ret ( Obj::* )( Args... ) const>( pMemberFunc );
 }
 
-// ref const object
+/// \return DelegateFunc.
 template<class Obj, class Ret, class... Args>
-auto wrap_member_func( Ret ( Obj::*pMemberFunc )( Args... ) const )
+auto member_func( Ret ( Obj::*pMemberFunc )( Args... ), Obj *pobj )
 {
-    return [pMemberFunc]( const Obj &obj, Args &&... args ) { return ( obj.*pMemberFunc )( std::forward<Args>( args )... ); };
+    return DelegateFunc<Ret ( Obj::* )( Args... )>( pMemberFunc, pobj );
+}
+template<class Obj, class Ret, class... Args>
+auto member_func( Ret ( Obj::*pMemberFunc )( Args... ) const, const Obj *pobj )
+{
+    return DelegateFunc<Ret ( Obj::* )( Args... ) const>( pMemberFunc, pobj );
 }
 
-//=============== bind object =============
-//  ref object
-template<class Obj, class Ret, class... Args>
-auto wrap_member_func( Ret ( Obj::*pMemberFunc )( Args... ), Obj &obj )
+/// \return dynamic DeletableDelegateFunc.
+template<class Deleter, class Obj, class Ret, class... Args>
+auto member_func( Ret ( Obj::*pMemberFunc )( Args... ),
+                  Obj *pobj,
+                  std::conditional_t<std::is_reference_v<Deleter>, Deleter, const Deleter &> &deleter )
 {
-    return [&obj, pMemberFunc]( Args &&... args ) { return ( obj.*pMemberFunc )( std::forward<Args>( args )... ); };
+    return DeletableDelegateFunc<Deleter, Ret ( Obj::* )( Args... )>( pMemberFunc, pobj, deleter );
 }
-
-// ref const object
-template<class Obj, class Ret, class... Args>
-auto wrap_member_func( Ret ( Obj::*pMemberFunc )( Args... ) const, const Obj &obj )
+template<class Deleter, class Obj, class Ret, class... Args>
+auto member_func( Ret ( Obj::*pMemberFunc )( Args... ) const,
+                  const Obj *pobj,
+                  std::conditional_t<std::is_reference_v<Deleter>, Deleter, const Deleter &> &deleter )
 {
-    return [&obj, pMemberFunc]( Args &&... args ) { return ( obj.*pMemberFunc )( std::forward<Args>( args )... ); };
+    return DeletableDelegateFunc<Deleter, Ret ( Obj::* )( Args... ) const>( pMemberFunc, pobj, deleter );
 }
 
 } // namespace ftl
