@@ -531,11 +531,11 @@ template<class Obj, class Ret, class... Args>
 struct MemberFuncInvoke<Ret ( Obj::* )( Args... )>
 {
     constexpr static auto is_const_member = false;
-    using ObjectType = Obj;
     using ClassType = std::remove_const_t<Obj>;
+    using ObjectType = ClassType;
     using MemberFuncType = Ret ( Obj::* )( Args... );
 
-    Ret invoke( MemberFuncType pMemberFunc, ObjectType &obj, Args &&... args )
+    Ret invoke( MemberFuncType pMemberFunc, ObjectType &obj, Args &&... args ) const
     {
         return ( obj.*pMemberFunc )( std::forward<Args>( args )... );
     }
@@ -545,15 +545,16 @@ template<class Obj, class Ret, class... Args>
 struct MemberFuncInvoke<Ret ( Obj::* )( Args... ) const>
 {
     constexpr static auto is_const_member = true;
-    using ObjectType = const Obj;
     using ClassType = std::remove_const_t<Obj>;
+    using ObjectType = const ClassType;
     using MemberFuncType = Ret ( Obj::* )( Args... ) const;
 
-    Ret invoke( MemberFuncType pMemberFunc, ObjectType &obj, Args &&... args )
+    Ret invoke( MemberFuncType pMemberFunc, const ClassType &obj, Args &&... args ) const
     {
         return ( obj.*pMemberFunc )( std::forward<Args>( args )... );
     }
 };
+/////////////////////  StaticMemberFunc /////////////////////////////////////
 
 /// \brief StaticMemberFunc. m_pMemberFunc is constexpr.
 template<class PMemberFuncT, PMemberFuncT pMembFunc>
@@ -564,14 +565,13 @@ struct StaticMemberFunc : MemberFuncInvoke<PMemberFuncT>
     using base_type::invoke;
     using base_type::is_const_member;
     using base_type::MemberFuncType;
-    using base_type::ObjectType;
-
     constexpr static typename base_type::MemberFuncType m_pMemberFunc = pMembFunc; // todo: delect virtual or not, to optimize non-virtual member.
 
     template<class... Args>
-    auto operator()( typename base_type::ObjectType &obj, Args &&... args ) const
+    auto operator()( typename base_type::ClassType &obj, Args &&... args ) const
     {
-        return ( obj.*m_pMemberFunc )( std::forward<Args>( args )... );
+        return base_type::invoke( m_pMemberFunc, obj, std::forward<Args>( args )... );
+        //        return ( obj.*m_pMemberFunc )( std::forward<Args>( args )... );
     }
 };
 namespace internal
@@ -631,6 +631,7 @@ struct MemberFunc<Ret ( Obj::* )( Args... )>
         return ( obj.*m_pMemberFunc )( std::forward<Args>( args )... );
     }
 };
+/////////////////////  DelegateFunc /////////////////////////////////////
 
 template<class PMemberFuncT>
 struct DelegateFunc;
@@ -676,6 +677,8 @@ struct DelegateFunc<Ret ( Obj::* )( Args... )>
         return ( m_pObj->*m_pMemberFunc )( std::forward<Args>( args )... );
     }
 };
+
+/////////////////////  DeletableDelegateFunc /////////////////////////////////////
 
 template<class Deleter, class PMemberFuncT>
 struct DeletableDelegateFunc;
@@ -741,25 +744,46 @@ constexpr auto member_func()
 template<class Obj, class Ret, class... Args>
 auto member_func( Ret ( Obj::*pMemberFunc )( Args... ) )
 {
-    return MemberFunc<Ret ( Obj::* )( Args... )>( pMemberFunc );
+    //    return MemberFunc<Ret ( Obj::* )( Args... )>( pMemberFunc );
+    return [pMemberFunc]( Obj &obj, Args &&... args ) { return ( obj.*pMemberFunc )( std::forward<Args>( args )... ); };
 }
 template<class Obj, class Ret, class... Args>
 auto member_func( Ret ( Obj::*pMemberFunc )( Args... ) const )
 {
-    return MemberFunc<Ret ( Obj::* )( Args... ) const>( pMemberFunc );
+    //    return MemberFunc<Ret ( Obj::* )( Args... ) const>( pMemberFunc );
+    return [pMemberFunc]( const Obj &obj, Args &&... args ) { return ( obj.*pMemberFunc )( std::forward<Args>( args )... ); };
 }
 
 /// \return DelegateFunc.
 template<class Obj, class Ret, class... Args>
 auto member_func( Ret ( Obj::*pMemberFunc )( Args... ), Obj *pobj )
 {
-    return DelegateFunc<Ret ( Obj::* )( Args... )>( pMemberFunc, pobj );
+    //    return DelegateFunc<Ret ( Obj::* )( Args... )>( pMemberFunc, pobj );
+    return [pMemberFunc, pobj]( Args &&... args ) { return ( pobj->*pMemberFunc )( std::forward<Args>( args )... ); };
 }
 template<class Obj, class Ret, class... Args>
 auto member_func( Ret ( Obj::*pMemberFunc )( Args... ) const, const Obj *pobj )
 {
-    return DelegateFunc<Ret ( Obj::* )( Args... ) const>( pMemberFunc, pobj );
+    //    return DelegateFunc<Ret ( Obj::* )( Args... ) const>( pMemberFunc, pobj );
+    return [pMemberFunc, pobj]( Args &&... args ) { return ( pobj->*pMemberFunc )( std::forward<Args>( args )... ); };
 }
+
+/// \brief make delegate that owns (constructs) an object copy.
+/// \return DelegateFunc.
+template<class Obj, class Ret, class... Args>
+auto member_func_copy( Ret ( Obj::*pMemberFunc )( Args... ), const Obj &obj )
+{
+    //    return DelegateFunc<Ret ( Obj::* )( Args... )>( pMemberFunc, pobj );
+    return [pMemberFunc, obj = obj]( Args &&... args ) { return ( obj.*pMemberFunc )( std::forward<Args>( args )... ); };
+}
+/// \brief make delegate that owns (constructs) an object copy.
+template<class Obj, class Ret, class... Args>
+auto member_func_copy( Ret ( Obj::*pMemberFunc )( Args... ) const, Obj &&obj )
+{
+    //    return DelegateFunc<Ret ( Obj::* )( Args... ) const>( pMemberFunc, pobj );
+    return [pMemberFunc, obj = std::move( obj )]( Args &&... args ) { return ( obj.*pMemberFunc )( std::forward<Args>( args )... ); };
+}
+
 
 /// \return dynamic DeletableDelegateFunc.
 template<class Deleter, class Obj, class Ret, class... Args>

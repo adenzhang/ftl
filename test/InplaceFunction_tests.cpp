@@ -102,16 +102,16 @@ ADD_TEST_CASE( FixedFunction_tests )
                 return !( x & 0x1 );
             }
 
+            virtual bool like_virtual_mut( int x )
+            {
+                return x % 3;
+            }
             virtual bool like_virtual( int x ) const
             {
                 return x % 3;
             }
-            virtual bool like_virtual2( int x ) const
-            {
-                return x % 3;
-            }
         };
-        REQUIRE( is_virtual_func( &My::like_virtual2 ) );
+        REQUIRE( is_virtual_func( &My::like_virtual_mut ) );
         REQUIRE( is_virtual_func( &My::like_virtual ) );
         REQUIRE( !is_virtual_func( &My::iseven ) );
 
@@ -123,17 +123,26 @@ ADD_TEST_CASE( FixedFunction_tests )
         REQUIRE( stdfunc( 3 ) );
 
         //--- virtual/member function -------------------------
+
         My m;
-        using StdMemFunc = std::function<bool ( My::* )( int )>;
+        using StdMemFunc = std::function<bool( My &, int )>;
+        using StdMemDelegate = std::function<bool( int )>;
         using MemFunc = ftl::InplaceFunction<bool( My &, int ), 32>;
-        //        StdMemFunc stdmemfunc = std::mem_fn( &my::iseven ); // compile error!
+
+        StdMemFunc stdmemfn = std::mem_fn( &My::like_virtual_mut );
+        stdmemfn( static_cast<My &>( m ), 3 );
+        //        stdmemfn( static_cast<const My &>( m ), 3 ); // compile errror!
+
         MemFunc memfunc;
-        memfunc = ftl::member_func<&My::iseven>(); // isodd doesn't match as it's mutable.
-        memfunc = ftl::member_func( &My::iseven ); // isodd doesn't match as it's mutable.
+        memfunc = ftl::member_func<&My::like_virtual_mut>(); // isodd doesn't match as it's mutable.
+        memfunc( static_cast<My &>( m ), 3 );
+        //        memfunc( static_cast<const My &>( m ), 3 ); // compile errror!
+
+        memfunc = ftl::member_func( &My::like_virtual_mut ); // isodd doesn't match as it's mutable.
         REQUIRE( memfunc( m, 2 ) );
         REQUIRE_EQ( memfunc.size(), 16u );
 
-        f1 = ftl::member_func( &My::iseven, &m );
+        f1 = ftl::member_func( &My::like_virtual_mut, static_cast<My *>( &m ) );
         f1( 3 );
         REQUIRE_EQ( f1.size(), 24u );
     }
