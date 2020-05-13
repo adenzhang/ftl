@@ -783,7 +783,9 @@ namespace type_erasure
         template<class... Args>
         auto operator()( Args &&... args ) const
         {
-            return call( std::forward<Args>( args )... );
+            static_assert( !std::is_same<Signature, void>::value, "Non-callable erasure" );
+            assert( m_pInfoEx && m_pInfoEx->pInvoke );
+            return m_pInfoEx->pInvoke( &m_storage, std::forward<Args>( args )... );
         }
 
         void clear()
@@ -839,5 +841,36 @@ template<class Signature, std::size_t N, bool bCopyConstructible = true, bool bM
 using InplaceFunction = typename type_erasure::Erasure<N, Signature, false, bCopyConstructible, bMoveConstructible>;
 template<class Signature, std::size_t N, bool bCopyConstructible = true, bool bMoveConstructible = true>
 using MutableInplaceFunction = typename type_erasure::Erasure<N, Signature, true, bCopyConstructible, bMoveConstructible>;
+
+
+/// \brief wrap member function to functor,
+/// Ref object.
+template<class Obj, class Ret, class... Args>
+auto wrap_member_func( Ret ( Obj::*pMemberFunc )( Args... ) )
+{
+    return [pMemberFunc]( Obj &obj, Args &&... args ) { return ( obj.*pMemberFunc )( std::forward<Args>( args )... ); };
+}
+
+// ref const object
+template<class Obj, class Ret, class... Args>
+auto wrap_member_func( Ret ( Obj::*pMemberFunc )( Args... ) const )
+{
+    return [pMemberFunc]( const Obj &obj, Args &&... args ) { return ( obj.*pMemberFunc )( std::forward<Args>( args )... ); };
+}
+
+//=============== bind object =============
+//  ref object
+template<class Obj, class Ret, class... Args>
+auto wrap_member_func( Ret ( Obj::*pMemberFunc )( Args... ), Obj &obj )
+{
+    return [&obj, pMemberFunc]( Args &&... args ) { return ( obj.*pMemberFunc )( std::forward<Args>( args )... ); };
+}
+
+// ref const object
+template<class Obj, class Ret, class... Args>
+auto wrap_member_func( Ret ( Obj::*pMemberFunc )( Args... ) const, const Obj &obj )
+{
+    return [&obj, pMemberFunc]( Args &&... args ) { return ( obj.*pMemberFunc )( std::forward<Args>( args )... ); };
+}
 
 } // namespace ftl

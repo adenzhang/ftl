@@ -3,16 +3,9 @@
 #include <ftl/inplace_function.h>
 #include <functional>
 
+
 ADD_TEST_CASE( FixedFunction_tests )
 {
-    //    {
-    //        int *p = new int;
-
-    //        int x = 30;
-    //        std::cout << " in stack " << likely_stack_addr( &x ) << ", heap:" << likely_stack_addr( p ) << std::endl;
-    //        delete p;
-    //    }
-
     struct Functor
     {
         std::size_t val = 100;
@@ -81,20 +74,36 @@ ADD_TEST_CASE( FixedFunction_tests )
         mutFixfunc = f0; // print destruct 205
 
         //-- static function
-        //        struct my
-        //        {
-        //            static bool isodd( int x )
-        //            {
-        //                return x & 0x1;
-        //            }
-        //        };
+        struct My
+        {
+            int id = 0;
+            static bool isodd( int x )
+            {
+                return x & 0x1;
+            }
+            bool iseven( int x )
+            {
+                return !( x & 0x1 );
+            }
+        };
 
-        //        Func f1 = &my::isodd;
-        //        f1.size();
-        //        REQUIRE_EQ( f1.size(), 16u );
-        //        REQUIRE( f1( 3 ) );
-        //        stdfunc = &my::isodd;
-        //        REQUIRE( stdfunc( 3 ) );
+        Func f1 = &My::isodd;
+        f1( 3 );
+        REQUIRE_EQ( f1.size(), 8u );
+        REQUIRE( f1( 3 ) );
+        stdfunc = &My::isodd;
+        REQUIRE( stdfunc( 3 ) );
+
+        //--- virtual/member function
+        My m;
+        using StdMemFunc = std::function<bool ( My::* )( int )>;
+        using MemFunc = ftl::InplaceFunction<bool( My &, int ), 32>;
+        //        StdMemFunc stdmemfunc = std::mem_fn( &my::iseven ); // compile error!
+        MemFunc memfunc;
+        memfunc = ftl::wrap_member_func( &My::iseven );
+        REQUIRE( memfunc( m, 2 ) );
+
+        f1 = ftl::wrap_member_func( &My::iseven, m );
     }
     SECTION( "basic" )
     {
