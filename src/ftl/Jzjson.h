@@ -439,13 +439,6 @@ protected:
 };
 using JsonNode = DynNode<>;
 
-struct JsonGrammarChars
-{
-    static constexpr char ELEMSEP = ',', KVSEP = ':', VECLB = '[', VECRB = ']', MAPLB = '{', MAPRB = '}';
-    static constexpr const char *COMMENT = "//"; // must be 2 chars. set to '\0' if absent.
-};
-
-
 template<size_t unit = 4, bool newLine = true>
 struct Indent
 {
@@ -469,7 +462,158 @@ struct Indent
 using Indent4 = Indent<>;
 using Indent2 = Indent<2>;
 
-template<class GrammarChars = JsonGrammarChars>
+struct JsonGrammar
+{
+    static constexpr char ELEMSEP = ',', KVSEP = ':', VECLB = '[', VECRB = ']', MAPLB = '{', MAPRB = '}', NEWLINE = '\n';
+    static constexpr const char *COMMENT = "//"; // must be 2 chars. set to '\0' if absent.
+
+    enum class TokenType
+    {
+        NONE,
+        QUOTE,
+        MAP_START,
+        MAP_END,
+        VEC_START,
+        VEC_END,
+        KV_SEP,
+        DELIM,
+        ID, // alphnum
+        NEW_LINE,
+        ESCAPE,
+        FILE_END,
+        SPACE,
+        INVALID
+    };
+    struct Token
+    {
+        TokenType toktype;
+        int ch;
+
+        bool valid() const
+        {
+            return toktype != TokenType::NONE && toktype != TokenType::INVALID;
+        }
+    };
+    struct Pos
+    {
+        int line = 0, col = 0;
+
+        void advance()
+        {
+            ++col;
+        }
+        void newline()
+        {
+            ++line;
+            col = 0;
+        }
+        friend std::ostream &operator<<( std::ostream &os, const Pos &pos )
+        {
+            os << "line: " << pos.line << ", col: " << pos.col;
+            return os;
+        }
+    };
+    static Token get_token( int c )
+    {
+        switch ( c )
+        {
+        case ',':
+            return {TokenType::DELIM, c};
+        case ':':
+            return {TokenType::KV_SEP, c};
+        case '{':
+            return {TokenType::MAP_START, c};
+        case '}':
+            return {TokenType::MAP_END, c};
+        case '[':
+            return {TokenType::VEC_START, c};
+        case ']':
+            return {TokenType::VEC_END, c};
+        case '\n':
+            return {TokenType::NEW_LINE, c};
+            //-- above are grammar chars.
+        case '\\':
+            return {TokenType::ESCAPE, c};
+        case '"':
+        case '\'':
+            return {TokenType::QUOTE, c};
+        case EOF:
+            return {TokenType::FILE_END, EOF};
+        default:
+            if ( isspace( c ) )
+                return {TokenType::SPACE, c};
+            if ( std::isprint( c ) )
+                return {TokenType::ID, c};
+            return {TokenType::INVALID, c};
+        }
+    }
+};
+struct JsonTraits
+{
+    static bool is_grammar_char( int c )
+    {
+        return c == JsonGrammar::ELEMSEP || c == JsonGrammar::KVSEP || c == JsonGrammar::VECLB || c == JsonGrammar::VECRB ||
+               c == JsonGrammar::MAPLB || c == JsonGrammar::MAPRB;
+    }
+
+    static bool is_identifier( int c )
+    {
+        return std::isprint( c );
+    }
+
+    static JsonGrammar::Token skip_till_token( std::istream &ss, JsonGrammar::Pos &pos )
+    {
+        while ( ss )
+        {
+            pos.advance();
+            auto tok = JsonGrammar::get_token( ss.get() );
+            if ( JsonGrammar::COMMENT[0] && tok.ch == JsonGrammar::COMMENT[0] )
+            { // check line comment "//"
+                if ( JsonGrammar::COMMENT[1] && JsonGrammar::COMMENT[1] == ss.peek() )
+                { // skip the whole line.
+                    while ( ss && ss.get() != '\n' )
+                        ;
+                    pos.newline();
+                    continue;
+                }
+            }
+
+            assert( tok.valid() );
+            if ( tok.toktype == JsonGrammar::TokenType::NEW_LINE )
+            {
+                pos.newline();
+                continue;
+            }
+            if ( tok.toktype != JsonGrammar::TokenType::SPACE )
+                return tok;
+        }
+        return {JsonGrammar::TokenType::FILE_END, EOF};
+    }
+};
+
+struct JzonTraits
+{
+    static bool is_grammar_char( int c )
+    {
+        return c == JsonGrammar::ELEMSEP || c == JsonGrammar::KVSEP || c == JsonGrammar::VECLB || c == JsonGrammar::VECRB ||
+               c == JsonGrammar::MAPLB || c == JsonGrammar::MAPRB || c == JsonGrammar::NEWLINE;
+    }
+
+    static JsonGrammar::Token skip_till_token( std::istream &ss, JsonGrammar::Pos &pos )
+    {
+        while ( ss )
+        {
+            pos.advance();
+            auto tok = JsonGrammar::get_token( ss.get() );
+            if ( tok.toktype == JsonGrammar::TokenType::NEW_LINE )
+                pos.newline();
+            if ( tok.toktype != JsonGrammar::TokenType::SPACE )
+                return tok;
+        }
+        return {JsonGrammar::TokenType::FILE_END, EOF};
+    }
+};
+template<class GrammarChars = JsonGrammar>
 struct JsonSerilizer
 {
     ///////////////////////////////////////////////////////////////////////////////////
@@ -548,222 +692,167 @@ struct JsonSerilizer
     template<class StrT = std::string>
     bool read( DynNode<StrT> &dyn, std::istream &ss, std::ostream &err ) const
     {
-        int lineCount = 1, charCount = 0;
-        return read_json( dyn, ss, err, lineCount, charCount );
+        typename GrammarChars::Pos pos{1, 0};
+        //        int lineCount = 1, charCount = 0;
+        return read_json( dyn, ss, err, pos );
     }
 
 protected:
-    // return -1 for EOF
-    // 0 for error
-    // 1 for string
+    // INVALID for error
+    // ID for string
     // other for grammar
-    int read_json_str( std::istream &ss, std::string &s, std::ostream &err, int &lineCount, int &charCount ) const
+    typename GrammarChars::Token read_json_str( std::istream &ss, std::string &s, std::ostream &err, typename GrammarChars::Pos &pos ) const
     {
-        struct my
-        {
-            static bool is_quote( int c )
-            {
-                return c == '\'' || c == '\"';
-            }
-            static bool is_grammar_char( int c )
-            {
-                return c == GrammarChars::ELEMSEP || c == GrammarChars::KVSEP || c == GrammarChars::VECLB || c == GrammarChars::VECRB ||
-                       c == GrammarChars::MAPLB || c == GrammarChars::MAPRB;
-            }
-            static bool is_valid_quoted_char( int c )
-            {
-                return isalnum( c ) || isspace( c );
-            }
-
-            static int skipUntilChar( std::istream &ss, int &lineCount, int &charCount )
-            {
-                while ( ss )
-                {
-                    auto c = ss.get();
-                    ++charCount;
-                    if ( GrammarChars::COMMENT[0] && c == GrammarChars::COMMENT[0] )
-                    { // check line comment "//"
-                        if ( GrammarChars::COMMENT[1] && GrammarChars::COMMENT[1] == ss.peek() )
-                        { // skip the whole line.
-                            while ( ss && ss.get() != '\n' )
-                                ;
-                            ++lineCount;
-                            charCount = 0;
-                            continue;
-                        }
-                    }
-                    if ( c == '\n' )
-                    {
-                        ++lineCount;
-                        charCount = 0;
-                    }
-                    if ( !std::isspace( c ) )
-                        return c;
-                }
-                return EOF;
-            }
-        };
-
+        using my = JsonTraits;
+        using TokenType = typename GrammarChars::TokenType;
         s.clear();
-        auto c = my::skipUntilChar( ss, lineCount, charCount );
-        if ( c == EOF )
-        {
-            s = "EOF";
-            return -1;
-        }
-        if ( my::is_grammar_char( c ) )
-        {
-            s += char( c );
+        auto c = my::skip_till_token( ss, pos );
+        if ( c.toktype == TokenType::FILE_END )
             return c;
-        }
-        if ( my::is_quote( c ) )
+        if ( my::is_grammar_char( c.ch ) )
+            return c;
+        if ( c.toktype == TokenType::QUOTE )
         {
-            char q = char( c );
             while ( ss )
             {
-                c = ss.get();
-                ++charCount;
-                if ( c == q ) // quote ends
-                {
-                    return 1; // got string
-                }
-                if ( c == '\\' ) // escape
+                pos.advance();
+                auto cc = GrammarChars::get_token( ss.get() );
+                if ( c.ch == cc.ch ) // quote ends
+                    return {TokenType::ID, cc.ch}; // got string
+                if ( cc.toktype == TokenType::ESCAPE ) // escape
                 {
                     if ( ss )
                     {
-                        auto cc = ss.get();
-                        if ( cc == '\"' || cc == '\'' )
-                            s += char( cc );
+                        cc = GrammarChars::get_token( ss.get() );
+                        if ( cc.ch == '\"' || cc.ch == '\'' ) // todo: handles all escape chars.
+                            s += char( cc.ch );
                         else
                         {
-                            err << "Unable to escape " << char( cc ) << " at nline: " << lineCount << ", nchar: " << charCount;
-                            return 0;
+                            err << "Unable to escape " << char( cc.ch ) << " at " << pos;
+                            return {TokenType::INVALID, cc.ch};
                         }
                     }
                     else
                     {
-                        err << "EOF when expecting quote: " << q << " at nline: " << lineCount << ", nchar: " << charCount;
-                        return 0;
+                        err << "EOF when expecting quote: " << c.ch << " at " << pos;
+                        return {TokenType::INVALID, EOF};
                     }
                 }
-                else if ( c == '\n' )
+                else if ( c.toktype == TokenType::NEW_LINE )
                 {
+                    pos.newline();
                     err << "new line within quoted string"
-                        << " at nline: " << lineCount << ", nchar: " << charCount + 1;
-                    return 0;
+                        << " at " << pos;
+                    return {TokenType::INVALID, GrammarChars::NEWLINE};
                 }
                 else
                 {
-                    s += char( c );
+                    s += char( cc.ch );
                 }
             }
+            assert( false );
         }
-        else // isalnum, unquoted string
+        if ( c.toktype == TokenType::ID ) // isalnum, unquoted string
         {
-            s += char( c );
+            s += char( c.ch );
             while ( ss )
             {
-                c = ss.peek();
-                if ( my::is_grammar_char( c ) || std::isspace( c ) )
-                    break;
-                else if ( std::isprint( c ) )
+                c = GrammarChars::get_token( ss.peek() );
+                if ( c.toktype == TokenType::ID ) // check all valid chars
                 {
                     s += char( ss.get() );
-                    ++charCount;
+                    pos.advance();
                 }
+                else if ( c.toktype == TokenType::SPACE || my::is_grammar_char( c.ch ) ) // end of ID
+                    break;
                 else
                 {
-                    err << " Illegal char at end of unquoated string:" << s << ", char:" << c << " at nline: " << lineCount
-                        << ", nchar: " << charCount + 1;
-                    return 0;
+                    err << " Illegal char at end of unquoated string:" << s << ", char:" << c.ch << " at " << pos;
+                    return {TokenType::INVALID, c.ch};
                 }
             }
-            return 1; // got string
+            return {TokenType::ID, 0}; // got string
         }
-        assert( false );
-        return 0; // never reach here
+        assert( false ); // never reach here
+        return {TokenType::INVALID, c.ch};
     }
 
     template<class StrT = std::string>
-    bool read_json( DynNode<StrT> &dyn, std::istream &ss, std::ostream &err, int &lineCount, int &charCount ) const
+    bool read_json( DynNode<StrT> &dyn, std::istream &ss, std::ostream &err, typename GrammarChars::Pos &pos ) const
     {
         using Node = DynNode<StrT>;
         using DynStr = typename Node::StrType;
+        using TokenType = typename GrammarChars::TokenType;
 
         std::string s;
-        auto res = read_json_str( ss, s, err, lineCount, charCount );
-        if ( res == GrammarChars::MAPLB ) // read map
+        auto res = read_json_str( ss, s, err, pos );
+        if ( res.toktype == TokenType::MAP_START ) // read map
         {
             dyn.resetToMap();
             while ( true )
             {
                 std::string key;
-                res = read_json_str( ss, key, err, lineCount, charCount );
-                if ( res == GrammarChars::MAPRB ) // end of map
+                res = read_json_str( ss, key, err, pos );
+                if ( res.toktype == TokenType::MAP_END ) // end of map
                     return true;
-                if ( res != 1 )
+                if ( res.toktype != TokenType::ID )
                 {
-                    err << " | expecting map key but got " << key << " at nline: " << lineCount << ", nchar: " << charCount;
+                    err << " | expecting map key but got " << key << " at " << pos;
                     return false;
                 }
                 //-- now have key already
-                res = read_json_str( ss, s, err, lineCount, charCount );
-                if ( res != ':' )
+                res = read_json_str( ss, s, err, pos );
+                if ( res.toktype != TokenType::KV_SEP )
                 {
-                    err << " | expecting ':' but got " << s << " for key " << key << " at nline: " << lineCount << ", nchar: " << charCount;
+                    err << " | expecting ':' but got " << s << " for key " << key << " at " << pos;
                     return false;
                 }
                 Node child;
-                auto r = read_json( child, ss, err, lineCount, charCount );
+                auto r = read_json( child, ss, err, pos );
                 if ( !r )
                 {
-                    err << " | error reading value for key=" << key << " at nline: " << lineCount << ", nchar: " << charCount;
+                    err << " | error reading value for key=" << key << " at " << pos;
                     return false;
                 }
                 dyn.mapInsert( DynStr( key ), std::move( child ) );
 
-                res = read_json_str( ss, key, err, lineCount, charCount );
-                if ( res == GrammarChars::ELEMSEP )
+                res = read_json_str( ss, key, err, pos );
+                if ( res.toktype == TokenType::DELIM )
                     continue;
-                if ( res == GrammarChars::MAPRB ) // end of map
+                if ( res.toktype == TokenType::MAP_END ) // end of map
                     return true;
-                err << " expecting map end or " << GrammarChars::ELEMSEP << ", but got " << key << " at nline: " << lineCount
-                    << ", nchar: " << charCount;
+                err << " expecting map end or " << GrammarChars::ELEMSEP << ", but got " << key << " at " << pos;
                 return false;
             }
         }
-        else if ( res == GrammarChars::VECLB ) // read vec
+        else if ( res.toktype == TokenType::VEC_START ) // read vec
         {
             dyn.resetToVec();
             while ( true )
             {
                 Node child;
-                auto r = read_json( child, ss, err, lineCount, charCount );
+                auto r = read_json( child, ss, err, pos );
                 if ( !r )
                 {
-                    err << " | error reading vec value"
-                        << " at nline: " << lineCount << ", nchar: " << charCount;
+                    err << " | error reading vec value at " << pos;
                     return false;
                 }
                 dyn.vecAppend( std::move( child ) );
-                res = read_json_str( ss, s, err, lineCount, charCount );
-                if ( res == GrammarChars::VECRB )
+                res = read_json_str( ss, s, err, pos );
+                if ( res.toktype == TokenType::VEC_END )
                     return true;
-                if ( res == GrammarChars::ELEMSEP )
+                if ( res.toktype == TokenType::DELIM )
                     continue;
             }
         }
-        else if ( res == 1 ) // read string
+        else if ( res.toktype == TokenType::ID ) // read string
         {
             dyn.resetToStr( s );
             return true;
         }
-        else
-        {
-            err << " | expecting map or vec or string."
-                << " at nline: " << lineCount << ", nchar: " << charCount;
-            return false;
-        }
+        //        else
+        err << " | expecting map or vec or string at " << pos;
+        return false;
     }
 };
 static constexpr JsonSerilizer<> jsonSerilizer{};
@@ -773,4 +862,8 @@ inline std::ostream &operator<<( std::ostream &os, const jz::DynNode<StrT> &node
 {
     return jz::jsonSerilizer.write( os, node );
 }
+
+/////////////////////////// Jzon format read /////////////////////////////////////////////
+
+
 } // namespace jz
