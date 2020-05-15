@@ -1,0 +1,776 @@
+#pragma once
+#include <string>
+#include <unordered_map>
+#include <vector>
+#include <memory>
+#include <fstream>
+#include <sstream>
+#include <cassert>
+#include <algorithm>
+
+namespace jz
+{
+/********************************************************
+ Header only Json format.
+ Examples:
+
+ADD_TEST_CASE( Jzjson_tests )
+{
+    std::stringstream ss( R"(
+[
+   { addOrder: { qty: 12, side: "buy it" }}, // comment
+   { action: addOrder,  qty: 14, price: 12.9, side: sell, others:{ "first name" : jack, score: 100.5, languages: [ 2, 3, 4] } },
+
+   { cancelOrder: { qty: 23, price: -25, side: sell , comment: "" }},
+   [ 1, 3, {a : 2, b : '234 3' }, "asd2 32"]
+]
+)" );
+
+    jz::JsonNode node;
+    REQUIRE( jz::jsonSerilizer.read( node, ss, std::cerr ) );
+    std::cout << "Parsed:" << node << std::endl;
+
+    REQUIRE_EQ( node[0]["addOrder"]["side"].str(), "buy it" );
+    REQUIRE_EQ( node[1]["action"].str(), "addOrder" );
+    REQUIRE_EQ( node[2]["cancelOrder"]["qty"].toInt(), 23 );
+    REQUIRE_EQ( node[2]["cancelOrder"]["comment"].str(), "" );
+    REQUIRE_EQ( node.childWithKey( "cancelOrder" )["side"].str(), "sell" );
+    REQUIRE_EQ( node.childWithKey( "cancelOrder" )["price"].toInt(), -25 );
+    REQUIRE_EQ( node.childWithKeyValue( "action", "addOrder" )["qty"].toInt(), 14 );
+}
+
+********************************************************/
+
+/// @brief DynNode which can be of string type, map type, vector type.
+template<class StrT = std::string>
+class DynNode
+{
+public:
+    enum NodeType
+    {
+        STR_NODE_TYPE,
+        MAP_NODE_TYPE,
+        VEC_NODE_TYPE,
+    };
+
+    using this_type = DynNode<StrT>;
+    using StrType = StrT;
+    using DynNodePtr = std::unique_ptr<this_type>;
+    using MapType = std::unordered_map<StrType, DynNodePtr>;
+    using VecType = std::vector<DynNodePtr>;
+
+    static const size_t STR_SIZE = sizeof( StrType );
+    static const size_t MAP_SIZE = sizeof( MapType );
+    static const size_t VEC_SIZE = sizeof( VecType );
+
+    DynNode( const StrType &s )
+    {
+        nodeType = STR_NODE_TYPE;
+        new ( &asStr() ) StrType( s );
+    }
+    DynNode( NodeType type = VEC_NODE_TYPE )
+    {
+        nodeType = type;
+        switch ( type )
+        {
+        case STR_NODE_TYPE:
+            new ( &asStr() ) StrType();
+            return;
+        case MAP_NODE_TYPE:
+            new ( &asMap() ) MapType();
+            return;
+        case VEC_NODE_TYPE:
+            new ( &asVec() ) VecType();
+            return;
+        }
+    }
+    DynNode( this_type &&a )
+    {
+        nodeType = a.nodeType;
+        switch ( nodeType )
+        {
+        case STR_NODE_TYPE:
+            new ( &asStr() ) StrType( std::move( a.asStr() ) );
+            return;
+        case MAP_NODE_TYPE:
+            new ( &asMap() ) MapType( std::move( a.asMap() ) );
+            return;
+        case VEC_NODE_TYPE:
+            new ( &asVec() ) VecType( std::move( a.asVec() ) );
+            return;
+        }
+    }
+    ~DynNode()
+    {
+        switch ( nodeType )
+        {
+        case STR_NODE_TYPE:
+            asStr().~StrType();
+            return;
+        case MAP_NODE_TYPE:
+            asMap().~MapType();
+            return;
+        case VEC_NODE_TYPE:
+            asVec().~VecType();
+            return;
+        }
+    }
+    NodeType getNodeType() const
+    {
+        return nodeType;
+    }
+    void resetToMap()
+    {
+        this->~this_type();
+        new ( this ) DynNode( MAP_NODE_TYPE );
+    }
+    void resetToVec()
+    {
+        this->~this_type();
+        new ( this ) DynNode( VEC_NODE_TYPE );
+    }
+    void resetToStr( const StrType &s )
+    {
+        this->~this_type();
+        new ( this ) DynNode( s );
+    }
+
+    this_type &operator=( this_type &&a )
+    {
+        this->~this_type();
+        new ( this ) this_type( std::move( a ) );
+        return *this;
+    }
+
+    this_type deepcopy() const
+    {
+        if ( nodeType == STR_NODE_TYPE )
+        {
+            return this_type( asStr() );
+        }
+        this_type root( nodeType );
+        if ( nodeType == VEC_NODE_TYPE )
+        {
+            for ( const auto &pNode : asVec() )
+            {
+                assert( pNode );
+                root.vecAppend( pNode->deepcopy() );
+            }
+            return root;
+        }
+        else
+        {
+            for ( const auto &kv : asMap() )
+            {
+                assert( kv.second );
+                root.mapInsert( kv.first, kv.second->deepcopy() );
+            }
+        }
+        return root;
+    }
+
+    // as a VecType, append an element.
+    bool vecAppend( this_type &&node )
+    {
+        assert( nodeType == VEC_NODE_TYPE );
+        asVec().push_back( makeNodePtr( std::move( node ) ) );
+        return true;
+    }
+    // as a MapType, append an element.
+    bool mapInsert( const StrType &key, this_type &&node, bool bForceUpdate = false )
+    {
+        return mapInsert( key, makeNodePtr( std::move( node ) ), bForceUpdate );
+    }
+
+    StrType &str()
+    {
+        if ( nodeType != STR_NODE_TYPE )
+            throw std::runtime_error( "Expected STR_NODE_TYPE" );
+        return asStr();
+        ;
+    }
+    // throws runtime_error if it's not a str
+    const StrType &str() const
+    {
+        if ( nodeType != STR_NODE_TYPE )
+            throw std::runtime_error( "Expected STR_NODE_TYPE" );
+        return asStr();
+    }
+
+    int toInt() const
+    {
+        auto x = std::strtol( str().c_str(), nullptr, 10 );
+        return x;
+    }
+
+    double toDouble() const
+    {
+        auto x = std::strtod( str().c_str(), nullptr );
+        return x;
+    }
+    bool toBool() const
+    {
+        const auto &s = str();
+        if ( iequals( s, "false" ) || iequals( s, "f" ) || iequals( s, "n" ) || iequals( s, "no" ) || iequals( s, "0" ) )
+            return false;
+        return true;
+    }
+    // throws runtime_error if it's not a vector
+    // throw our_of_range
+    this_type &operator[]( size_t idx )
+    {
+        if ( nodeType != VEC_NODE_TYPE )
+        {
+            throw std::runtime_error( "Expected VEC_NODE_TYPE" );
+        }
+        return *asVec().at( idx );
+    }
+    // throws runtime_error if it's not a map
+    // throw our_of_range
+    this_type &operator[]( const StrType &key )
+    {
+        if ( nodeType != MAP_NODE_TYPE )
+            throw std::runtime_error( "Expected MAP_NODE_TYPE" );
+        return *asMap().at( key );
+    }
+    // throw our_of_range
+    const this_type &operator[]( size_t idx ) const
+    {
+        if ( nodeType != VEC_NODE_TYPE )
+            throw std::runtime_error( "Expected VEC_NODE_TYPE" );
+        return *asVec().at( idx );
+    }
+    // throw our_of_range
+    const this_type &operator[]( const StrType &key ) const
+    {
+        if ( nodeType != MAP_NODE_TYPE )
+            throw std::runtime_error( "Expected MAP_NODE_TYPE" );
+        return *asMap().at( key );
+    }
+
+    // call func( key, DynNode ) for each element in map.
+    template<class Func>
+    void mapForeach( Func &&func )
+    {
+        if ( nodeType != MAP_NODE_TYPE )
+            throw std::runtime_error( "Expected MAP_NODE_TYPE" );
+        for ( auto &kv : asMap() )
+            func( kv.first, *kv.second );
+    }
+
+    template<class Func>
+    void mapForeach( Func &&func ) const
+    {
+        if ( nodeType != MAP_NODE_TYPE )
+            throw std::runtime_error( "Expected MAP_NODE_TYPE" );
+        for ( const auto &kv : asMap() )
+            func( kv.first, *kv.second );
+    }
+
+    // call func( DynNode ) for each element in vec.
+    template<class Func>
+    void vecForeach( Func &&func )
+    {
+        if ( nodeType != VEC_NODE_TYPE )
+            throw std::runtime_error( "Expected VEC_NODE_TYPE" );
+        for ( auto &v : asVec() )
+            func( *v );
+    }
+
+    template<class Func>
+    void vecForeach( Func &&func ) const
+    {
+        if ( nodeType != VEC_NODE_TYPE )
+            throw std::runtime_error( "Expected VEC_NODE_TYPE" );
+        for ( const auto &v : asVec() )
+            func( *v );
+    }
+
+    bool mapContains( const StrType &key ) const
+    {
+        if ( nodeType != MAP_NODE_TYPE )
+            throw std::runtime_error( "Expected MAP_NODE_TYPE" );
+        return asMap().count( key );
+    }
+
+    // @return the mapped node with key equals given key value.
+    // if no such nod found, throws out_of_range.
+    // if current is a vector, search the child elements and return mapped node.
+    // if current is a map, search the keys and return the mapped node.
+    const this_type &childWithKey( const StrType &key ) const
+    {
+        if ( nodeType == VEC_NODE_TYPE )
+        {
+            for ( const auto &v : asVec() )
+            {
+                if ( v->getNodeType() == MAP_NODE_TYPE && v->asMap().count( key ) )
+                    return *v->asMap()[key];
+            }
+        }
+        else if ( nodeType == MAP_NODE_TYPE )
+        {
+            return ( *this )[key];
+        }
+        else
+        {
+            throw std::runtime_error( "Expected VEC_NODE_TYPE, MAP_NODE_TYPE" );
+        }
+        throw std::out_of_range( key );
+    }
+
+    // similar to above. But return the map that contains the key value pair.
+    // @return the child node with key equals given key value.
+    // if no such nod found, throws out_of_range.
+    // if current is a vector, search the child elements and return the child node.
+    // if current is a map, search the mapped values of children and return mapped value.
+    const this_type &childWithKeyValue( const StrType &key, const StrType &val ) const
+    {
+        if ( nodeType == VEC_NODE_TYPE )
+        {
+            for ( const auto &v : asVec() )
+            {
+                if ( v->getNodeType() == MAP_NODE_TYPE )
+                {
+                    const auto &m = v->asMap();
+                    auto it = m.find( key );
+                    if ( m.end() != it && it->second->getNodeType() == STR_NODE_TYPE && it->second->str() == val )
+                        return *v;
+                }
+            }
+        }
+        else if ( nodeType == MAP_NODE_TYPE )
+        {
+            for ( const auto &v : asMap() )
+            {
+                if ( v.second->getNodeType() == MAP_NODE_TYPE )
+                {
+                    const auto &m = v.second->asMap();
+                    auto it = m.find( key );
+                    if ( m.end() != it && it->second->getNodeType() == STR_NODE_TYPE && it->second->str() == val )
+                        return *v.second;
+                }
+            }
+        }
+        else
+        {
+            throw std::runtime_error( "Expected VEC_NODE_TYPE, MAP_NODE_TYPE" );
+        }
+        throw std::out_of_range( key );
+    }
+
+    // return 1 if it's a string type.
+    size_t size() const
+    {
+        if ( nodeType == VEC_NODE_TYPE )
+            return asVec().size();
+        if ( nodeType == MAP_NODE_TYPE )
+            return asMap().size();
+        return 1;
+    }
+
+    static bool iequals( const std::string &a, const std::string &b )
+    {
+        unsigned int sz = a.size();
+        if ( b.size() != sz )
+            return false;
+        for ( unsigned int i = 0; i < sz; ++i )
+            if ( std::tolower( a[i] ) != std::tolower( b[i] ) )
+                return false;
+        return true;
+    }
+
+protected:
+    DynNodePtr makeNodePtr( this_type &&node )
+    {
+        return DynNodePtr( new this_type( std::move( node ) ) );
+    }
+    StrType &asStr()
+    {
+        void *p = m_data;
+        return *reinterpret_cast<StrType *>( p );
+    }
+    const StrType &asStr() const
+    {
+        const void *p = m_data;
+        return *reinterpret_cast<const StrType *>( p );
+    }
+    VecType &asVec()
+    {
+        void *p = m_data;
+        return *reinterpret_cast<VecType *>( p );
+    }
+    const VecType &asVec() const
+    {
+        const void *p = m_data;
+        return *reinterpret_cast<const VecType *>( p );
+    }
+    MapType &asMap()
+    {
+        void *p = m_data;
+        return *reinterpret_cast<MapType *>( p );
+    }
+    const MapType &asMap() const
+    {
+        const void *p = m_data;
+        return *reinterpret_cast<const MapType *>( p );
+    }
+
+    bool mapInsert( const StrType &key, DynNodePtr &&pNode, bool bForceUpdate = false )
+    {
+        assert( nodeType == MAP_NODE_TYPE );
+        auto &m = asMap();
+        auto it = m.find( key );
+        if ( it != m.end() )
+        {
+            if ( !bForceUpdate )
+                return false;
+            it->second = std::move( pNode );
+            return true;
+        }
+        m.insert( std::make_pair( key, std::move( pNode ) ) );
+        return true;
+    }
+
+protected:
+    static const size_t DATASIZE = STR_SIZE > MAP_SIZE ? ( STR_SIZE > VEC_SIZE ? STR_SIZE : VEC_SIZE )
+                                                       : ( MAP_SIZE > VEC_SIZE ? MAP_SIZE : VEC_SIZE );
+    NodeType nodeType;
+    char m_data[DATASIZE]; // may use std::variant when updated to c++17.
+};
+using JsonNode = DynNode<>;
+
+struct JsonGrammarChars
+{
+    static constexpr char ELEMSEP = ',', KVSEP = ':', VECLB = '[', VECRB = ']', MAPLB = '{', MAPRB = '}';
+    static constexpr const char *COMMENT = "//"; // must be 2 chars. set to '\0' if absent.
+};
+
+
+template<size_t unit = 4, bool newLine = true>
+struct Indent
+{
+    int level;
+    Indent( int level = 0 ) : level( level )
+    {
+    }
+    friend std::ostream &operator<<( std::ostream &os, Indent ind )
+    {
+        if ( ind.level < 0 ) // no print for negative level
+            return os;
+        if ( newLine )
+            os << std::endl;
+        for ( int i = 0; i < ind.level; ++i )
+        {
+            os << "    ";
+        }
+        return os;
+    }
+};
+using Indent4 = Indent<>;
+using Indent2 = Indent<2>;
+
+template<class GrammarChars = JsonGrammarChars>
+struct JsonSerilizer
+{
+    ///////////////////////////////////////////////////////////////////////////////////
+    ///            print
+    ///////////////////////////////////////////////////////////////////////////////////
+
+    // set indentLevel == -1 for compact print.
+    template<class StrType>
+    static std::ostream &printStr( std::ostream &os, const StrType &s )
+    {
+        if ( s.empty() || std::any_of( s.begin(), s.end(), []( char c ) { return std::isspace( c ); } ) )
+        {
+            os << '"' << s << '"';
+        }
+        else
+            os << s;
+        return os;
+    }
+
+    template<class StrT = std::string>
+    std::ostream &write( std::ostream &os, const DynNode<StrT> &dyn, int indentLevel = 0 ) const
+    {
+        using Node = DynNode<StrT>;
+        int n = 0, LEN;
+        switch ( dyn.getNodeType() )
+        {
+        case Node::STR_NODE_TYPE:
+            os << Indent4( indentLevel );
+            printStr( os, dyn.str() );
+            break;
+        case Node::VEC_NODE_TYPE:
+            os << Indent4( indentLevel ) << GrammarChars::VECLB;
+            indentLevel = indentLevel < 0 ? indentLevel : indentLevel + 1;
+            LEN = dyn.size();
+            dyn.vecForeach( [&]( const Node &node ) {
+                write( os, node, indentLevel );
+                if ( ++n != LEN )
+                    os << GrammarChars::ELEMSEP;
+            } );
+            os << Indent4( indentLevel - 1 ) << GrammarChars::VECRB;
+            break;
+        case Node::MAP_NODE_TYPE:
+            os << Indent4( indentLevel ) << GrammarChars::MAPLB;
+            indentLevel = indentLevel < 0 ? indentLevel : indentLevel + 1;
+            LEN = dyn.size();
+            dyn.mapForeach( [&]( const StrT &key, const Node &node ) {
+                os << Indent4( indentLevel );
+                printStr( os, key );
+                if ( indentLevel >= 0 )
+                    os << ' ';
+                os << GrammarChars::KVSEP;
+                if ( indentLevel >= 0 )
+                    os << ' ';
+                if ( node.getNodeType() == Node::STR_NODE_TYPE )
+                    printStr( os, node.str() );
+                else
+                    write( os, node, indentLevel );
+                if ( ++n != LEN )
+                    os << GrammarChars::ELEMSEP;
+            } );
+            os << Indent4( indentLevel - 1 ) << GrammarChars::MAPRB;
+            break;
+        }
+        return os;
+    }
+    template<class StrT = std::string>
+    std::ostream &printJsonCompact( std::ostream &os, const DynNode<StrT> &dyn ) const
+    {
+        return printJson( os, dyn, -1 );
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////
+    ///            read
+    ///////////////////////////////////////////////////////////////////////////////////
+
+    template<class StrT = std::string>
+    bool read( DynNode<StrT> &dyn, std::istream &ss, std::ostream &err ) const
+    {
+        int lineCount = 1, charCount = 0;
+        return read_json( dyn, ss, err, lineCount, charCount );
+    }
+
+protected:
+    // return -1 for EOF
+    // 0 for error
+    // 1 for string
+    // other for grammar
+    int read_json_str( std::istream &ss, std::string &s, std::ostream &err, int &lineCount, int &charCount ) const
+    {
+        struct my
+        {
+            static bool is_quote( int c )
+            {
+                return c == '\'' || c == '\"';
+            }
+            static bool is_grammar_char( int c )
+            {
+                return c == GrammarChars::ELEMSEP || c == GrammarChars::KVSEP || c == GrammarChars::VECLB || c == GrammarChars::VECRB ||
+                       c == GrammarChars::MAPLB || c == GrammarChars::MAPRB;
+            }
+            static bool is_valid_quoted_char( int c )
+            {
+                return isalnum( c ) || isspace( c );
+            }
+
+            static int skipUntilChar( std::istream &ss, int &lineCount, int &charCount )
+            {
+                while ( ss )
+                {
+                    auto c = ss.get();
+                    ++charCount;
+                    if ( GrammarChars::COMMENT[0] && c == GrammarChars::COMMENT[0] )
+                    { // check line comment "//"
+                        if ( GrammarChars::COMMENT[1] && GrammarChars::COMMENT[1] == ss.peek() )
+                        { // skip the whole line.
+                            while ( ss && ss.get() != '\n' )
+                                ;
+                            ++lineCount;
+                            charCount = 0;
+                            continue;
+                        }
+                    }
+                    if ( c == '\n' )
+                    {
+                        ++lineCount;
+                        charCount = 0;
+                    }
+                    if ( !std::isspace( c ) )
+                        return c;
+                }
+                return EOF;
+            }
+        };
+
+        s.clear();
+        auto c = my::skipUntilChar( ss, lineCount, charCount );
+        if ( c == EOF )
+        {
+            s = "EOF";
+            return -1;
+        }
+        if ( my::is_grammar_char( c ) )
+        {
+            s += char( c );
+            return c;
+        }
+        if ( my::is_quote( c ) )
+        {
+            char q = char( c );
+            while ( ss )
+            {
+                c = ss.get();
+                ++charCount;
+                if ( c == q ) // quote ends
+                {
+                    return 1; // got string
+                }
+                if ( c == '\\' ) // escape
+                {
+                    if ( ss )
+                    {
+                        auto cc = ss.get();
+                        if ( cc == '\"' || cc == '\'' )
+                            s += char( cc );
+                        else
+                        {
+                            err << "Unable to escape " << char( cc ) << " at nline: " << lineCount << ", nchar: " << charCount;
+                            return 0;
+                        }
+                    }
+                    else
+                    {
+                        err << "EOF when expecting quote: " << q << " at nline: " << lineCount << ", nchar: " << charCount;
+                        return 0;
+                    }
+                }
+                else if ( c == '\n' )
+                {
+                    err << "new line within quoted string"
+                        << " at nline: " << lineCount << ", nchar: " << charCount + 1;
+                    return 0;
+                }
+                else
+                {
+                    s += char( c );
+                }
+            }
+        }
+        else // isalnum, unquoted string
+        {
+            s += char( c );
+            while ( ss )
+            {
+                c = ss.peek();
+                if ( my::is_grammar_char( c ) || std::isspace( c ) )
+                    break;
+                else if ( std::isprint( c ) )
+                {
+                    s += char( ss.get() );
+                    ++charCount;
+                }
+                else
+                {
+                    err << " Illegal char at end of unquoated string:" << s << ", char:" << c << " at nline: " << lineCount
+                        << ", nchar: " << charCount + 1;
+                    return 0;
+                }
+            }
+            return 1; // got string
+        }
+        assert( false );
+        return 0; // never reach here
+    }
+
+    template<class StrT = std::string>
+    bool read_json( DynNode<StrT> &dyn, std::istream &ss, std::ostream &err, int &lineCount, int &charCount ) const
+    {
+        using Node = DynNode<StrT>;
+        using DynStr = typename Node::StrType;
+
+        std::string s;
+        auto res = read_json_str( ss, s, err, lineCount, charCount );
+        if ( res == GrammarChars::MAPLB ) // read map
+        {
+            dyn.resetToMap();
+            while ( true )
+            {
+                std::string key;
+                res = read_json_str( ss, key, err, lineCount, charCount );
+                if ( res == GrammarChars::MAPRB ) // end of map
+                    return true;
+                if ( res != 1 )
+                {
+                    err << " | expecting map key but got " << key << " at nline: " << lineCount << ", nchar: " << charCount;
+                    return false;
+                }
+                //-- now have key already
+                res = read_json_str( ss, s, err, lineCount, charCount );
+                if ( res != ':' )
+                {
+                    err << " | expecting ':' but got " << s << " for key " << key << " at nline: " << lineCount << ", nchar: " << charCount;
+                    return false;
+                }
+                Node child;
+                auto r = read_json( child, ss, err, lineCount, charCount );
+                if ( !r )
+                {
+                    err << " | error reading value for key=" << key << " at nline: " << lineCount << ", nchar: " << charCount;
+                    return false;
+                }
+                dyn.mapInsert( DynStr( key ), std::move( child ) );
+
+                res = read_json_str( ss, key, err, lineCount, charCount );
+                if ( res == GrammarChars::ELEMSEP )
+                    continue;
+                if ( res == GrammarChars::MAPRB ) // end of map
+                    return true;
+                err << " expecting map end or " << GrammarChars::ELEMSEP << ", but got " << key << " at nline: " << lineCount
+                    << ", nchar: " << charCount;
+                return false;
+            }
+        }
+        else if ( res == GrammarChars::VECLB ) // read vec
+        {
+            dyn.resetToVec();
+            while ( true )
+            {
+                Node child;
+                auto r = read_json( child, ss, err, lineCount, charCount );
+                if ( !r )
+                {
+                    err << " | error reading vec value"
+                        << " at nline: " << lineCount << ", nchar: " << charCount;
+                    return false;
+                }
+                dyn.vecAppend( std::move( child ) );
+                res = read_json_str( ss, s, err, lineCount, charCount );
+                if ( res == GrammarChars::VECRB )
+                    return true;
+                if ( res == GrammarChars::ELEMSEP )
+                    continue;
+            }
+        }
+        else if ( res == 1 ) // read string
+        {
+            dyn.resetToStr( s );
+            return true;
+        }
+        else
+        {
+            err << " | expecting map or vec or string."
+                << " at nline: " << lineCount << ", nchar: " << charCount;
+            return false;
+        }
+    }
+};
+static constexpr JsonSerilizer<> jsonSerilizer{};
+
+template<class StrT>
+inline std::ostream &operator<<( std::ostream &os, const jz::DynNode<StrT> &node )
+{
+    return jz::jsonSerilizer.write( os, node );
+}
+} // namespace jz
