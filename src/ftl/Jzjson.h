@@ -852,6 +852,7 @@ inline std::ostream &operator<<( std::ostream &os, const jz::DynNode<StrT> &node
 -- omit ':' between key and value,
 -- newline is treated as comma ','  when it's end of key-value pair.
 -- duplicate keys:  combine into a single k-v with value of array of all values
+-- omit ',' in vec within [].
 -- in array, omit [] and comma ',' if its elements are strings/atomics". note that ',' must be omitted if [] is NOT needed.
 -- comments start with '//'.
 ---------------------------------------------------------------------------------
@@ -886,7 +887,7 @@ struct JzonSerializer
     {
         typename JsonGrammar::Pos pos{1, 0};
         //        int lineCount = 1, charCount = 0;
-        return read_json( dyn, ss, err, pos );
+        return read_json( dyn, ss, err, pos ).first != DynNode<StrT>::NodeType::NIL_NODE_TYPE;
     }
 
 protected:
@@ -1028,6 +1029,9 @@ protected:
             auto res = read_json_str( ss, key, err, pos );
             if ( res.toktype == TokenType::MAP_END ) // end of map
                 return true;
+            if ( res.toktype == TokenType::DELIM || ( bNewLineAsComma && res.toktype == TokenType::NEW_LINE ) )
+                continue;
+
             if ( res.toktype != TokenType::ID )
             {
                 err << " | expecting map key but got " << key << " at " << pos;
@@ -1035,49 +1039,46 @@ protected:
             }
             //-- now have key already
             Node child;
-            res = read_json_str( ss, s, err, pos, !bNewLineAsComma );
+            res = read_json_str( ss, s, err, pos, !bNewLineAsComma ); // expecting ':' or new line
             if ( res.toktype == TokenType::KV_SEP || ( bNewLineAsComma && res.toktype == TokenType::NEW_LINE ) ) // read ':'
             {
-                auto r = read_json( child, ss, err, pos );
-                if ( !r )
+                //                err << " | expecting ':' for key=" << key << ". But got " << res.ch << " at " << pos;
+                res = read_json_str( ss, s, err, pos ); // read value
+            }
+            else // res.toktype != TokenType::KV_SEP && !( bNewLineAsComma && res.toktype == TokenType::NEW_LINE )
+            {
+                if constexpr ( !bOmitKVSep )
                 {
-                    err << " | error reading value map for key=" << key << " at " << pos;
-                    return false;
+                    err << " | expecting map ':' but got " << s << "with key=" << key << " at " << pos;
                 }
             }
-            else
+
+            //-- now have value already in s .
+            if constexpr ( bOmitKVSep )
             {
-                if constexpr ( bOmitKVSep )
+                if ( res.toktype == TokenType::ID )
                 {
-                    if ( res.toktype == TokenType::ID )
+                    child.resetToStr( s );
+                    // todo: forwad read next str.
+                    // if its ID and bOmitVecBrackets, construct into a vec.
+                }
+                else if ( res.toktype == TokenType::VEC_START )
+                {
+                    child.resetToVec();
+                    auto r = read_json_vec( child, ss, err, pos );
+                    if ( !r )
                     {
-                        child.resetToStr( s );
-                        // todo: forwad read next str.
-                        // if its ID and bOmitVecBrackets, construct into a vec.
+                        err << " | error reading value vec for key=" << key << " at " << pos;
+                        return false;
                     }
-                    else if ( res.toktype == TokenType::VEC_START )
+                }
+                else if ( res.toktype == TokenType::MAP_START )
+                {
+                    child.resetToMap();
+                    auto r = read_json_map( child, ss, err, pos );
+                    if ( !r )
                     {
-                        child.resetToVec();
-                        auto r = read_json_vec( child, ss, err, pos );
-                        if ( !r )
-                        {
-                            err << " | error reading value vec for key=" << key << " at " << pos;
-                            return false;
-                        }
-                    }
-                    else if ( res.toktype == TokenType::MAP_START )
-                    {
-                        child.resetToMap();
-                        auto r = read_json_map( child, ss, err, pos );
-                        if ( !r )
-                        {
-                            err << " | error reading value vec for key=" << key << " at " << pos;
-                            return false;
-                        }
-                    }
-                    else
-                    {
-                        err << " | expecting ':' but got " << s << " for key " << key << " at " << pos;
+                        err << " | error reading value vec for key=" << key << " at " << pos;
                         return false;
                     }
                 }
@@ -1088,6 +1089,7 @@ protected:
                 }
             }
 
+            //-- insert kv pair.
             if ( dyn.mapContains( key ) )
             {
                 if constexpr ( bCombineDupKeys )
@@ -1110,15 +1112,6 @@ protected:
             }
             else
                 dyn.mapInsert( DynStr( key ), std::move( child ) );
-
-
-            res = read_json_str( ss, key, err, pos, !bNewLineAsComma );
-            if ( res.toktype == TokenType::DELIM || ( bNewLineAsComma && res.toktype == TokenType::NEW_LINE ) )
-                continue;
-            if ( res.toktype == TokenType::MAP_END ) // end of map
-                return true;
-            err << " expecting map end or " << JzonGrammar::ELEMSEP << ", but got " << key << " at " << pos;
-            return false;
         }
     }
 
@@ -1129,6 +1122,7 @@ protected:
         using Node = DynNode<StrT>;
         using DynStr = typename Node::StrType;
         using TokenType = typename JzonGrammar::TokenType;
+        // bOmitVecComma bydefault.
         // bOmitVecBrackets
         Node child;
         while ( true )
@@ -1163,9 +1157,7 @@ protected:
                     return false;
                 dyn.vecAppend( ( std::move( child ) ) );
             }
-
-            auto r = read_json( child, ss, err, pos, DynNode<StrT>::VEC_NODE_TYPE );
-            if ( !r )
+            else
             {
                 err << " | error reading vec value at " << pos;
                 return false;
@@ -1174,11 +1166,12 @@ protected:
     }
 
     template<class StrT = std::string>
-    bool read_json( DynNode<StrT> &dyn,
-                    std::istream &ss,
-                    std::ostream &err,
-                    typename JzonGrammar::Pos &pos,
-                    typename DynNode<StrT>::NodeType parentNodeType = DynNode<StrT>::NodeType::NIL_NODE_TYPE ) const
+    typename std::pair<typename DynNode<StrT>::NodeType, std::string> read_json(
+            DynNode<StrT> &dyn,
+            std::istream &ss,
+            std::ostream &err,
+            typename JzonGrammar::Pos &pos,
+            typename DynNode<StrT>::NodeType parentNodeType = DynNode<StrT>::NodeType::NIL_NODE_TYPE ) const
     {
         using Node = DynNode<StrT>;
         using DynStr = typename Node::StrType;
@@ -1189,21 +1182,25 @@ protected:
         if ( res.toktype == TokenType::MAP_START ) // read map
         {
             dyn.resetToMap();
-            return read_json_map( dyn, ss, err, pos );
+            if ( read_json_map( dyn, ss, err, pos ) )
+                return {DynNode<StrT>::MAP_NODE_TYPE, ""};
+            return {DynNode<StrT>::NodeType::NIL_NODE_TYPE, ""};
         }
         else if ( res.toktype == TokenType::VEC_START ) // read vec
         {
             dyn.resetToVec();
-            return read_json_map( dyn, ss, err, pos );
+            if ( read_json_vec( dyn, ss, err, pos ) )
+                return {DynNode<StrT>::VEC_NODE_TYPE, ""};
+            return {DynNode<StrT>::NodeType::NIL_NODE_TYPE, ""};
         }
         else if ( res.toktype == TokenType::ID ) // read string
         {
             dyn.resetToStr( s );
-            return true;
+            return {DynNode<StrT>::STR_NODE_TYPE, ""};
         }
         //        else
-        err << " | expecting map or vec or string at " << pos;
-        return false;
+        //        err << " | expecting map or vec or string at " << pos;
+        return {DynNode<StrT>::NodeType::NIL_NODE_TYPE, s};
     }
 }; // namespace jz
 JzonSerializer<> jzonSerializer{};

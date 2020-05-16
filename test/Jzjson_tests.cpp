@@ -10,6 +10,8 @@ ADD_TEST_CASE( Jzjson_tests )
 
    { cancelOrder: { qty: 23, price: -25, side: sell , comment: "" }},
    [ 1, 3, {a : 2, b : '234 3' }, "asd2 32"]
+                          //{}
+                          //[]
 ]
 )" );
 
@@ -34,34 +36,38 @@ ADD_TEST_CASE( Jzson_tests )
     {
         std::stringstream ss( R"(
 
-            { addOrder { qty 12
-                         side "buy it",
-                         price : +23.3
-                         comment "this is
-                              muliple line"}
-              addOrder { qty 23, price: -12 }   // dup keys are combined into vec addOrder [ {qty 23...}, { qty 23...} ]
+                { addOrder { qty 12
+                             side "buy it",
+                             price : +23.3
+                             comment "this is
+                                  muliple line"}
+                  addOrder { qty 23
+                            price: -12
+                         }   // dup keys are combined into vec addOrder [ {qty 23...}, { qty 23...} ]
 
-              samples [223, 321, 34]
-              dates []
-              owners {}
-            } // comment
-        )" );
+                  samples [223 321 [34, 3] 2]
+                  dates []
+                  owners {}
+                } // comment
+            )" );
 
         REQUIRE( jz::jzonSerializer.read( node, ss, std::cerr ) );
         std::cout << "Parsed:" << node << std::endl;
         REQUIRE_EQ( node["addOrder"][0]["side"].str(), "buy it" );
+        REQUIRE_EQ( node["dates"].size(), 0u );
+        REQUIRE_EQ( node["owners"].size(), 0u );
     }
 
-    //    SECTION( "omit vec brackets" )
-    //    {
-    //        std::stringstream ss( R"(
-    //            {
-    //              samples 22e3 321 34
-    //            } // comment
-    //        )" );
+    SECTION( "omit vec brackets" )
+    {
+        std::stringstream ss( R"(
+                    {
+                      samples [23e3 [321 34] 234]
+                    } // comment
+                )" );
 
-    //        REQUIRE( jz::jzonSerializer.read( node, ss, std::cerr ) );
-    //        std::cout << "Parsed:" << node << std::endl;
-    //        REQUIRE_EQ( node["samples"][0].str(), "23e3" );
-    //    }
+        REQUIRE( jz::jzonSerializer.read( node, ss, std::cerr ) );
+        std::cout << "Parsed:" << node << std::endl;
+        REQUIRE_EQ( node["samples"][0].str(), "23e3" );
+    }
 }
