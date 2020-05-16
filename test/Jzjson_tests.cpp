@@ -14,7 +14,7 @@ ADD_TEST_CASE( Jzjson_tests )
 )" );
 
     jz::JsonNode node;
-    REQUIRE( jz::jsonSerilizer.read( node, ss, std::cerr ) );
+    REQUIRE( jz::jsonSerializer.read( node, ss, std::cerr ) );
     std::cout << "Parsed:" << node << std::endl;
 
     REQUIRE_EQ( node[0]["addOrder"]["side"].str(), "buy it" );
@@ -24,4 +24,44 @@ ADD_TEST_CASE( Jzjson_tests )
     REQUIRE_EQ( node.childWithKey( "cancelOrder" )["side"].str(), "sell" );
     REQUIRE_EQ( node.childWithKey( "cancelOrder" )["price"].toInt(), -25 );
     REQUIRE_EQ( node.childWithKeyValue( "action", "addOrder" )["qty"].toInt(), 14 );
+}
+
+ADD_TEST_CASE( Jzson_tests )
+{
+    jz::JsonNode node;
+
+    SECTION( "basic" )
+    {
+        std::stringstream ss( R"(
+
+            { addOrder { qty 12
+                         side "buy it",
+                         price : +23.3
+                         comment "this is
+                              muliple line"}
+              addOrder { qty 23, price: -12 }   // dup keys are combined into vec addOrder [ {qty 23...}, { qty 23...} ]
+
+              samples [223, 321, 34]
+              dates []
+              owners {}
+            } // comment
+        )" );
+
+        REQUIRE( jz::jzonSerializer.read( node, ss, std::cerr ) );
+        std::cout << "Parsed:" << node << std::endl;
+        REQUIRE_EQ( node["addOrder"][0]["side"].str(), "buy it" );
+    }
+
+    //    SECTION( "omit vec brackets" )
+    //    {
+    //        std::stringstream ss( R"(
+    //            {
+    //              samples 22e3 321 34
+    //            } // comment
+    //        )" );
+
+    //        REQUIRE( jz::jzonSerializer.read( node, ss, std::cerr ) );
+    //        std::cout << "Parsed:" << node << std::endl;
+    //        REQUIRE_EQ( node["samples"][0].str(), "23e3" );
+    //    }
 }

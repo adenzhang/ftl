@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <memory>
 #include <fstream>
@@ -27,7 +28,7 @@ ADD_TEST_CASE( Jzjson_tests )
 )" );
 
     jz::JsonNode node;
-    REQUIRE( jz::jsonSerilizer.read( node, ss, std::cerr ) );
+    REQUIRE( jz::JsonSerializer.read( node, ss, std::cerr ) );
     std::cout << "Parsed:" << node << std::endl;
 
     REQUIRE_EQ( node[0]["addOrder"]["side"].str(), "buy it" );
@@ -51,6 +52,7 @@ public:
         STR_NODE_TYPE,
         MAP_NODE_TYPE,
         VEC_NODE_TYPE,
+        NIL_NODE_TYPE, // not used as valid node type
     };
 
     using this_type = DynNode<StrT>;
@@ -167,6 +169,13 @@ public:
             }
         }
         return root;
+    }
+
+    void swap( this_type &node )
+    {
+        this_type tmp( std::move( node ) );
+        node = std::move( *this );
+        *this = std::move( tmp );
     }
 
     // as a VecType, append an element.
@@ -548,7 +557,8 @@ struct JsonGrammar
         }
     }
 };
-struct JsonTraits
+
+struct JsonTrait
 {
     static bool is_grammar_char( int c )
     {
@@ -591,30 +601,8 @@ struct JsonTraits
     }
 };
 
-struct JzonTraits
-{
-    static bool is_grammar_char( int c )
-    {
-        return c == JsonGrammar::ELEMSEP || c == JsonGrammar::KVSEP || c == JsonGrammar::VECLB || c == JsonGrammar::VECRB ||
-               c == JsonGrammar::MAPLB || c == JsonGrammar::MAPRB || c == JsonGrammar::NEWLINE;
-    }
-
-    static JsonGrammar::Token skip_till_token( std::istream &ss, JsonGrammar::Pos &pos )
-    {
-        while ( ss )
-        {
-            pos.advance();
-            auto tok = JsonGrammar::get_token( ss.get() );
-            if ( tok.toktype == JsonGrammar::TokenType::NEW_LINE )
-                pos.newline();
-            if ( tok.toktype != JsonGrammar::TokenType::SPACE )
-                return tok;
-        }
-        return {JsonGrammar::TokenType::FILE_END, EOF};
-    }
-};
 template<class GrammarChars = JsonGrammar>
-struct JsonSerilizer
+struct JsonSerializer
 {
     ///////////////////////////////////////////////////////////////////////////////////
     ///            print
@@ -703,7 +691,7 @@ protected:
     // other for grammar
     typename GrammarChars::Token read_json_str( std::istream &ss, std::string &s, std::ostream &err, typename GrammarChars::Pos &pos ) const
     {
-        using my = JsonTraits;
+        using my = JsonTrait;
         using TokenType = typename GrammarChars::TokenType;
         s.clear();
         auto c = my::skip_till_token( ss, pos );
@@ -763,13 +751,8 @@ protected:
                     s += char( ss.get() );
                     pos.advance();
                 }
-                else if ( c.toktype == TokenType::SPACE || my::is_grammar_char( c.ch ) ) // end of ID
-                    break;
                 else
-                {
-                    err << " Illegal char at end of unquoated string:" << s << ", char:" << c.ch << " at " << pos;
-                    return {TokenType::INVALID, c.ch};
-                }
+                    break;
             }
             return {TokenType::ID, 0}; // got string
         }
@@ -855,15 +838,373 @@ protected:
         return false;
     }
 };
-static constexpr JsonSerilizer<> jsonSerilizer{};
+static constexpr JsonSerializer<> jsonSerializer{};
 
 template<class StrT>
 inline std::ostream &operator<<( std::ostream &os, const jz::DynNode<StrT> &node )
 {
-    return jz::jsonSerilizer.write( os, node );
+    return jz::jsonSerializer.write( os, node );
 }
 
-/////////////////////////// Jzon format read /////////////////////////////////////////////
+/********************************************************************************
+ Extented JSON-like jzon format
+
+-- omit ':' between key and value,
+-- newline is treated as comma ','  when it's end of key-value pair.
+-- duplicate keys:  combine into a single k-v with value of array of all values
+-- in array, omit [] and comma ',' if its elements are strings/atomics". note that ',' must be omitted if [] is NOT needed.
+-- comments start with '//'.
+---------------------------------------------------------------------------------
+
+// document is a map by default, but user can also interpret it as a vector.
+{  // this a map
+    name John A B                      // name : ["John", "A", "B"]
+    scores [ math 23,  english 32, history 123] // [ scores: [ [math 23], [english, 32], [history 123]]
+    send [ [John 32] [tim asdf] ]   // send: [ [John 32] [tim asdf] ]
+    addr 2 3 4
+    addr 5 6 7                               // values are combined into an array : addr:[ [2,3,4], [5, 6, 7] ]
+    friends [ "John B" { age 23 }, "Tom A" { age 32 } ]  // friends: [ ["John B", {age: 23}], ...]
+    addresses { 1 "2 main st", 2 "3 rock st"}  // addresses : { 1: "2 main st", ...}
+    comment "multi-\
+line \
+text"
+},
+2 3 4 5 // [2, 3, 4, 5]
+
+***********************************************************************************/
+/////////////////////////////////////////////////////////////////////////////////////
+///
+///                   Jzon format read
+///
+////////////////////////////////////////////////////////////////////////////////////
+
+template<bool bOmitKVSep = true, bool bNewLineAsComma = true, bool bMultiLineStr = true, bool bCombineDupKeys = true, bool bOmitVecBrackets = false>
+struct JzonSerializer
+{
+    template<class StrT = std::string>
+    bool read( DynNode<StrT> &dyn, std::istream &ss, std::ostream &err ) const
+    {
+        typename JsonGrammar::Pos pos{1, 0};
+        //        int lineCount = 1, charCount = 0;
+        return read_json( dyn, ss, err, pos );
+    }
+
+protected:
+    struct JzonTrait
+    {
+        static bool is_grammar_char( int c )
+        {
+            return JsonTrait::is_grammar_char( c ); // new line as grammar
+        }
+        static JsonGrammar::Token skip_till_token( std::istream &ss, JsonGrammar::Pos &pos, bool skipNewLine = true )
+        {
+            while ( ss )
+            {
+                pos.advance();
+                auto tok = JsonGrammar::get_token( ss.get() );
+                if ( JsonGrammar::COMMENT[0] && tok.ch == JsonGrammar::COMMENT[0] )
+                { // check line comment "//"
+                    if ( JsonGrammar::COMMENT[1] && JsonGrammar::COMMENT[1] == ss.peek() )
+                    { // skip the whole line.
+                        while ( ss && ss.get() != '\n' )
+                            ;
+                        pos.newline();
+                        continue;
+                    }
+                }
+
+                assert( tok.valid() );
+                if ( tok.toktype == JsonGrammar::TokenType::NEW_LINE )
+                {
+                    pos.newline();
+                    if ( skipNewLine )
+                        continue;
+                    return tok;
+                }
+                if ( tok.toktype != JsonGrammar::TokenType::SPACE )
+                    return tok;
+            }
+            return {JsonGrammar::TokenType::FILE_END, EOF};
+        }
+    };
+    using JzonGrammar = JsonGrammar;
+    // INVALID for error
+    // ID for string
+    // other for grammar
+    typename JsonGrammar::Token read_json_str(
+            std::istream &ss, std::string &s, std::ostream &err, typename JzonGrammar::Pos &pos, bool skipNewLine = true ) const
+    {
+        using my = JzonTrait;
+        using TokenType = typename JzonGrammar::TokenType;
+        s.clear();
+        auto c = my::skip_till_token( ss, pos, skipNewLine );
+        if ( c.toktype == TokenType::FILE_END )
+            return c;
+        if ( my::is_grammar_char( c.ch ) )
+            return c;
+        if ( !skipNewLine && c.toktype == TokenType::NEW_LINE )
+            return c;
+        if ( c.toktype == TokenType::QUOTE )
+        {
+            while ( ss )
+            {
+                pos.advance();
+                auto cc = JzonGrammar::get_token( ss.get() );
+                if ( c.ch == cc.ch ) // quote ends
+                    return {TokenType::ID, cc.ch}; // got string
+                if ( cc.toktype == TokenType::ESCAPE ) // escape
+                {
+                    if ( ss )
+                    {
+                        cc = JzonGrammar::get_token( ss.get() );
+                        if ( cc.ch == '\"' || cc.ch == '\'' ) // todo: handles all escape chars.
+                            s += char( cc.ch );
+                        else
+                        {
+                            err << "Unable to escape " << char( cc.ch ) << " at " << pos;
+                            return {TokenType::INVALID, cc.ch};
+                        }
+                    }
+                    else
+                    {
+                        err << "EOF when expecting quote: " << c.ch << " at " << pos;
+                        return {TokenType::INVALID, EOF};
+                    }
+                }
+                else if ( cc.toktype == TokenType::NEW_LINE )
+                {
+                    pos.newline();
+                    if constexpr ( bMultiLineStr )
+                    {
+                        s += '\n';
+                    }
+                    else
+                    {
+                        err << "new line within quoted string"
+                            << " at " << pos;
+                        return {TokenType::INVALID, JzonGrammar::NEWLINE};
+                    }
+                }
+                else
+                {
+                    s += char( cc.ch );
+                }
+            }
+            assert( false );
+        }
+        if ( c.toktype == TokenType::ID ) // isalnum, unquoted string
+        {
+            s += char( c.ch );
+            while ( ss )
+            {
+                c = JzonGrammar::get_token( ss.peek() );
+                if ( c.toktype == TokenType::ID ) // check all valid chars
+                {
+                    s += char( ss.get() );
+                    pos.advance();
+                }
+                else
+                    break;
+            }
+            return {TokenType::ID, 0}; // got string
+        }
+
+        assert( false ); // never reach here
+        return {TokenType::INVALID, c.ch};
+    }
+    /// \param dyn is already constructed as map, read all map elements.
+    template<class StrT = std::string>
+    bool read_json_map( DynNode<StrT> &dyn, std::istream &ss, std::ostream &err, typename JzonGrammar::Pos &pos ) const
+    {
+        std::string s;
+        using Node = DynNode<StrT>;
+        using DynStr = typename Node::StrType;
+        using TokenType = typename JzonGrammar::TokenType;
+
+        std::unordered_set<std::string> bCombinedKeys;
+        while ( true )
+        {
+            std::string key;
+            auto res = read_json_str( ss, key, err, pos );
+            if ( res.toktype == TokenType::MAP_END ) // end of map
+                return true;
+            if ( res.toktype != TokenType::ID )
+            {
+                err << " | expecting map key but got " << key << " at " << pos;
+                return false;
+            }
+            //-- now have key already
+            Node child;
+            res = read_json_str( ss, s, err, pos, !bNewLineAsComma );
+            if ( res.toktype == TokenType::KV_SEP || ( bNewLineAsComma && res.toktype == TokenType::NEW_LINE ) ) // read ':'
+            {
+                auto r = read_json( child, ss, err, pos );
+                if ( !r )
+                {
+                    err << " | error reading value map for key=" << key << " at " << pos;
+                    return false;
+                }
+            }
+            else
+            {
+                if constexpr ( bOmitKVSep )
+                {
+                    if ( res.toktype == TokenType::ID )
+                    {
+                        child.resetToStr( s );
+                        // todo: forwad read next str.
+                        // if its ID and bOmitVecBrackets, construct into a vec.
+                    }
+                    else if ( res.toktype == TokenType::VEC_START )
+                    {
+                        child.resetToVec();
+                        auto r = read_json_vec( child, ss, err, pos );
+                        if ( !r )
+                        {
+                            err << " | error reading value vec for key=" << key << " at " << pos;
+                            return false;
+                        }
+                    }
+                    else if ( res.toktype == TokenType::MAP_START )
+                    {
+                        child.resetToMap();
+                        auto r = read_json_map( child, ss, err, pos );
+                        if ( !r )
+                        {
+                            err << " | error reading value vec for key=" << key << " at " << pos;
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        err << " | expecting ':' but got " << s << " for key " << key << " at " << pos;
+                        return false;
+                    }
+                }
+                else
+                {
+                    err << " | expecting ':' but got " << s << " for key " << key << " at " << pos;
+                    return false;
+                }
+            }
+
+            if ( dyn.mapContains( key ) )
+            {
+                if constexpr ( bCombineDupKeys )
+                {
+                    auto &childdyn = dyn[key];
+                    if ( !bCombinedKeys.count( key ) ) // it's alreay combined into vec.
+                    {
+                        bCombinedKeys.insert( key );
+                        Node tmp( std::move( childdyn ) );
+                        childdyn.resetToVec();
+                        childdyn.vecAppend( std::move( tmp ) );
+                    }
+                    childdyn.vecAppend( std::move( child ) );
+                }
+                else
+                {
+                    err << " duplicate key:" << key << " at " << pos;
+                    return false;
+                }
+            }
+            else
+                dyn.mapInsert( DynStr( key ), std::move( child ) );
 
 
+            res = read_json_str( ss, key, err, pos, !bNewLineAsComma );
+            if ( res.toktype == TokenType::DELIM || ( bNewLineAsComma && res.toktype == TokenType::NEW_LINE ) )
+                continue;
+            if ( res.toktype == TokenType::MAP_END ) // end of map
+                return true;
+            err << " expecting map end or " << JzonGrammar::ELEMSEP << ", but got " << key << " at " << pos;
+            return false;
+        }
+    }
+
+    template<class StrT = std::string>
+    bool read_json_vec( DynNode<StrT> &dyn, std::istream &ss, std::ostream &err, typename JzonGrammar::Pos &pos, bool bNeedsVecEnd = true ) const
+    {
+        std::string s;
+        using Node = DynNode<StrT>;
+        using DynStr = typename Node::StrType;
+        using TokenType = typename JzonGrammar::TokenType;
+        // bOmitVecBrackets
+        Node child;
+        while ( true )
+        {
+            auto res = read_json_str( ss, s, err, pos );
+            if constexpr ( bOmitVecBrackets )
+            {
+                if ( bNeedsVecEnd && res.toktype == TokenType::VEC_END )
+                    return true;
+            }
+            if ( res.toktype == TokenType::VEC_END )
+                return true;
+            if ( res.toktype == TokenType::ID )
+            {
+                child.resetToStr( s );
+                dyn.vecAppend( std::move( child ) );
+                continue;
+            }
+            else if ( res.toktype == TokenType::DELIM )
+                continue;
+            else if ( res.toktype == TokenType::VEC_START )
+            {
+                child.resetToVec();
+                if ( !read_json_vec( child, ss, err, pos ) )
+                    return false;
+                dyn.vecAppend( ( std::move( child ) ) );
+            }
+            else if ( res.toktype == TokenType::MAP_START )
+            {
+                child.resetToVec();
+                if ( !read_json_vec( child, ss, err, pos ) )
+                    return false;
+                dyn.vecAppend( ( std::move( child ) ) );
+            }
+
+            auto r = read_json( child, ss, err, pos, DynNode<StrT>::VEC_NODE_TYPE );
+            if ( !r )
+            {
+                err << " | error reading vec value at " << pos;
+                return false;
+            }
+        }
+    }
+
+    template<class StrT = std::string>
+    bool read_json( DynNode<StrT> &dyn,
+                    std::istream &ss,
+                    std::ostream &err,
+                    typename JzonGrammar::Pos &pos,
+                    typename DynNode<StrT>::NodeType parentNodeType = DynNode<StrT>::NodeType::NIL_NODE_TYPE ) const
+    {
+        using Node = DynNode<StrT>;
+        using DynStr = typename Node::StrType;
+        using TokenType = typename JzonGrammar::TokenType;
+
+        std::string s;
+        auto res = read_json_str( ss, s, err, pos );
+        if ( res.toktype == TokenType::MAP_START ) // read map
+        {
+            dyn.resetToMap();
+            return read_json_map( dyn, ss, err, pos );
+        }
+        else if ( res.toktype == TokenType::VEC_START ) // read vec
+        {
+            dyn.resetToVec();
+            return read_json_map( dyn, ss, err, pos );
+        }
+        else if ( res.toktype == TokenType::ID ) // read string
+        {
+            dyn.resetToStr( s );
+            return true;
+        }
+        //        else
+        err << " | expecting map or vec or string at " << pos;
+        return false;
+    }
+}; // namespace jz
+JzonSerializer<> jzonSerializer{};
 } // namespace jz
