@@ -10,8 +10,9 @@ ADD_TEST_CASE( Jzjson_tests )
 
    { cancelOrder: { qty: 23, price: -25, side: sell , comment: "" }},
    [ 1, 3, {a : 2, b : '234 3' }, "asd2 32"]
-                          //{}
-                          //[]
+
+                          {}
+                          []
 ]
 )" );
 
@@ -26,9 +27,11 @@ ADD_TEST_CASE( Jzjson_tests )
     REQUIRE_EQ( node.childWithKey( "cancelOrder" )["side"].str(), "sell" );
     REQUIRE_EQ( node.childWithKey( "cancelOrder" )["price"].toInt(), -25 );
     REQUIRE_EQ( node.childWithKeyValue( "action", "addOrder" )["qty"].toInt(), 14 );
+    REQUIRE_EQ( node[4].size(), 0u );
+    REQUIRE_EQ( node[5].size(), 0u );
 }
 
-ADD_TEST_CASE( Jzson_tests )
+ADD_TEST_CASE( Jzon_tests )
 {
     jz::JsonNode node;
 
@@ -53,6 +56,8 @@ ADD_TEST_CASE( Jzson_tests )
 
         REQUIRE( jz::jzonSerializer.read( node, ss, std::cerr ) );
         std::cout << "Parsed:" << node << std::endl;
+        //        jz::jzonSerializer.printJsonCompact( std::cout, node ) << std::endl;
+
         REQUIRE_EQ( node["addOrder"][0]["side"].str(), "buy it" );
         REQUIRE_EQ( node["dates"].size(), 0u );
         REQUIRE_EQ( node["owners"].size(), 0u );
